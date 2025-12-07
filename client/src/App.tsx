@@ -6,7 +6,11 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { CustomCursor } from "@/components/custom-cursor";
 import { AnimatedBackground } from "@/components/animated-background";
+import { ParticleBackground } from "@/components/particle-background";
 import { Navigation } from "@/components/navigation";
+import { InteractiveTerminal } from "@/components/terminal";
+import { EasterEggs } from "@/components/easter-eggs";
+import { CustomContextMenu } from "@/components/custom-context-menu";
 import Home from "@/pages/home";
 import NotFound from "@/pages/not-found";
 
@@ -25,11 +29,14 @@ function App() {
       <ThemeProvider>
         <TooltipProvider>
           <CustomCursor />
-          <AnimatedBackground />
+          <ParticleBackground />
           <Navigation />
           <main className="relative">
             <Router />
           </main>
+          <InteractiveTerminal />
+          <EasterEggs />
+          <CustomContextMenu />
           <Toaster />
         </TooltipProvider>
       </ThemeProvider>

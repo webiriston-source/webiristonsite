@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { motion } from "framer-motion";
 import type { Skill } from "@shared/schema";
 import { 
@@ -135,10 +135,147 @@ const categoryLabels: Record<string, string> = {
   tools: "Инструменты",
 };
 
+interface NodePosition {
+  id: string;
+  x: number;
+  y: number;
+}
+
+interface Connection {
+  from: string;
+  to: string;
+  key: string;
+}
+
 export function AboutSection() {
   const [hoveredSkill, setHoveredSkill] = useState<string | null>(null);
+  const [nodePositions, setNodePositions] = useState<NodePosition[]>([]);
+  const [showConnections, setShowConnections] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const nodeRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   const hoveredSkillData = skills.find((s) => s.id === hoveredSkill);
+
+  const connections = useMemo(() => {
+    const conns: Connection[] = [];
+    const addedPairs = new Set<string>();
+    
+    skills.forEach((skill) => {
+      skill.related.forEach((relatedId) => {
+        const pairKey = [skill.id, relatedId].sort().join("-");
+        if (!addedPairs.has(pairKey)) {
+          addedPairs.add(pairKey);
+          conns.push({
+            from: skill.id,
+            to: relatedId,
+            key: pairKey,
+          });
+        }
+      });
+    });
+    return conns;
+  }, []);
+
+  const updatePositions = useCallback(() => {
+    if (!containerRef.current) return;
+    
+    const containerRect = containerRef.current.getBoundingClientRect();
+    const positions: NodePosition[] = [];
+    
+    nodeRefs.current.forEach((element, id) => {
+      if (element) {
+        const rect = element.getBoundingClientRect();
+        positions.push({
+          id,
+          x: rect.left - containerRect.left + rect.width / 2,
+          y: rect.top - containerRect.top + rect.height / 2,
+        });
+      }
+    });
+    
+    setNodePositions(positions);
+  }, []);
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      updatePositions();
+      setShowConnections(true);
+    }, 500);
+
+    const handleResize = () => {
+      updatePositions();
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => {
+      clearTimeout(timeoutId);
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [updatePositions]);
+
+  const getNodePosition = useCallback((id: string) => {
+    return nodePositions.find((p) => p.id === id);
+  }, [nodePositions]);
+
+  const renderConnections = useCallback(() => {
+    if (!showConnections || nodePositions.length === 0) return null;
+
+    return (
+      <svg
+        className="absolute inset-0 pointer-events-none overflow-visible"
+        style={{ zIndex: 0 }}
+      >
+        <defs>
+          <linearGradient id="line-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity="0.3" />
+            <stop offset="50%" stopColor="hsl(var(--primary))" stopOpacity="0.6" />
+            <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity="0.3" />
+          </linearGradient>
+        </defs>
+        {connections.map(({ from, to, key }) => {
+          const fromPos = getNodePosition(from);
+          const toPos = getNodePosition(to);
+          
+          if (!fromPos || !toPos) return null;
+
+          const isActive = hoveredSkill === from || hoveredSkill === to ||
+            (hoveredSkillData?.related?.includes(from) && hoveredSkillData?.id === to) ||
+            (hoveredSkillData?.related?.includes(to) && hoveredSkillData?.id === from);
+
+          return (
+            <motion.line
+              key={key}
+              x1={fromPos.x}
+              y1={fromPos.y}
+              x2={toPos.x}
+              y2={toPos.y}
+              stroke={isActive ? "hsl(var(--primary))" : "url(#line-gradient)"}
+              strokeWidth={isActive ? 2 : 1}
+              strokeOpacity={isActive ? 0.8 : 0.2}
+              strokeDasharray={isActive ? "none" : "4 4"}
+              initial={{ pathLength: 0, opacity: 0 }}
+              animate={{ 
+                pathLength: 1, 
+                opacity: 1,
+                strokeOpacity: isActive ? 0.8 : 0.2,
+                strokeWidth: isActive ? 2 : 1,
+              }}
+              transition={{ 
+                duration: 0.3,
+                delay: 0.1,
+              }}
+            />
+          );
+        })}
+      </svg>
+    );
+  }, [showConnections, nodePositions, connections, getNodePosition, hoveredSkill, hoveredSkillData]);
+
+  const setNodeRef = useCallback((id: string) => (el: HTMLDivElement | null) => {
+    if (el) {
+      nodeRefs.current.set(id, el);
+    }
+  }, []);
 
   return (
     <section id="about" className="py-20 md:py-32">
@@ -157,7 +294,7 @@ export function AboutSection() {
             Мой технологический стек
           </h2>
           <p className="text-muted-foreground max-w-2xl mx-auto">
-            Наведите на технологию, чтобы узнать больше о моем опыте работы с ней
+            Наведите на технологию, чтобы увидеть связи и узнать больше о моем опыте
           </p>
         </motion.div>
 
@@ -168,7 +305,8 @@ export function AboutSection() {
             viewport={{ once: true }}
             transition={{ duration: 0.5 }}
           >
-            <div className="space-y-8">
+            <div ref={containerRef} className="space-y-8 relative">
+              {renderConnections()}
               {Object.entries(categoryLabels).map(([category, label]) => (
                 <div key={category}>
                   <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
@@ -183,12 +321,12 @@ export function AboutSection() {
                       .map((skill, index) => {
                         const Icon = iconMap[skill.icon];
                         const isHovered = hoveredSkill === skill.id;
-                        const isRelated =
-                          hoveredSkillData?.related.includes(skill.id);
+                        const isRelated = hoveredSkillData?.related.includes(skill.id);
 
                         return (
                           <motion.div
                             key={skill.id}
+                            ref={setNodeRef(skill.id)}
                             initial={{ opacity: 0, scale: 0.8 }}
                             whileInView={{ opacity: 1, scale: 1 }}
                             viewport={{ once: true }}
@@ -199,8 +337,8 @@ export function AboutSection() {
                               relative flex items-center gap-2 px-4 py-3 rounded-md
                               bg-card border border-card-border
                               transition-all duration-300
-                              ${isHovered ? "ring-2 ring-primary scale-105" : ""}
-                              ${isRelated ? "ring-2 ring-primary/50" : ""}
+                              ${isHovered ? "ring-2 ring-primary scale-105 z-10" : ""}
+                              ${isRelated ? "ring-2 ring-primary/50 z-10" : ""}
                             `}
                             data-testid={`skill-${skill.id}`}
                             data-cursor-hover
@@ -301,8 +439,8 @@ export function AboutSection() {
                     Исследуйте мои навыки
                   </h3>
                   <p className="text-muted-foreground text-sm max-w-xs">
-                    Наведите курсор на любую технологию слева, чтобы узнать
-                    подробнее о моем опыте
+                    Наведите курсор на любую технологию слева, чтобы увидеть связи
+                    и узнать подробнее о моем опыте
                   </p>
                 </div>
               )}
