@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Send, Github, Linkedin, Loader2, CheckCircle, AlertCircle } from "lucide-react";
+import { Send, Loader2, CheckCircle } from "lucide-react";
 import { SiTelegram } from "react-icons/si";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,9 +21,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 const socialLinks = [
-  { icon: Github, href: "https://github.com", label: "GitHub" },
-  { icon: Linkedin, href: "https://linkedin.com", label: "LinkedIn" },
-  { icon: SiTelegram, href: "https://t.me", label: "Telegram" },
+  { icon: SiTelegram, href: "https://t.me/alliniriston", label: "Telegram" },
 ];
 
 function RobotIllustration({ focusedField }: { focusedField: string | null }) {

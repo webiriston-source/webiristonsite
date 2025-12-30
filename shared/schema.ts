@@ -45,7 +45,6 @@ export interface Project {
   fullDescription: string;
   image: string;
   technologies: string[];
-  githubUrl?: string;
   liveUrl?: string;
   problems?: string;
   solutions?: string;

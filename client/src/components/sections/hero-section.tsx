@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { ArrowDown, Github, Linkedin, Send } from "lucide-react";
+import { ArrowDown, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SiTelegram } from "react-icons/si";
 
@@ -128,43 +128,11 @@ export function HeroSection() {
               variant="ghost"
               size="icon"
               asChild
-              data-testid="link-github"
-              data-cursor-hover
-            >
-              <a
-                href="https://github.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="GitHub"
-              >
-                <Github className="w-5 h-5" />
-              </a>
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              asChild
-              data-testid="link-linkedin"
-              data-cursor-hover
-            >
-              <a
-                href="https://linkedin.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="LinkedIn"
-              >
-                <Linkedin className="w-5 h-5" />
-              </a>
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              asChild
               data-testid="link-telegram"
               data-cursor-hover
             >
               <a
-                href="https://t.me"
+                href="https://t.me/alliniriston"
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="Telegram"

@@ -60,10 +60,7 @@ const COMMANDS: Record<string, { description: string; handler: () => string }> =
     handler: () => {
       return `Контактная информация:
 
-  Email:    developer@example.com
-  Telegram: @developer
-  GitHub:   github.com/developer
-  LinkedIn: linkedin.com/in/developer
+  Telegram: @alliniriston
 
 Или используйте форму обратной связи в секции "Контакты".`;
     },

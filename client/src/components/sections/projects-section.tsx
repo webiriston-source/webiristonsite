@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ExternalLink, Github, X, ChevronRight } from "lucide-react";
+import { ExternalLink, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -14,7 +14,6 @@ const projects: Project[] = [
     fullDescription: "Полноценная e-commerce платформа, разработанная с нуля. Включает каталог товаров с фильтрацией и поиском, корзину покупок, интеграцию платежных систем, личный кабинет пользователя и полнофункциональную админ-панель для управления товарами и заказами.",
     image: "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=800&h=600&fit=crop",
     technologies: ["Next.js", "TypeScript", "Prisma", "PostgreSQL", "Stripe", "Tailwind CSS"],
-    githubUrl: "https://github.com",
     liveUrl: "https://example.com",
     problems: "Необходимость обеспечить высокую производительность при большом каталоге товаров и реализовать безопасную обработку платежей.",
     solutions: "Использование ISR для страниц каталога, оптимизация запросов к БД с Prisma, интеграция Stripe для безопасных платежей с webhooks.",
@@ -26,7 +25,6 @@ const projects: Project[] = [
     fullDescription: "Канбан-доска для управления проектами и задачами. Поддерживает создание досок, колонок и карточек с возможностью перетаскивания. Реализована система уведомлений, комментарии к задачам и синхронизация между пользователями в реальном времени.",
     image: "https://images.unsplash.com/photo-1611224923853-80b023f02d71?w=800&h=600&fit=crop",
     technologies: ["React", "Node.js", "Socket.io", "MongoDB", "Redux", "dnd-kit"],
-    githubUrl: "https://github.com",
     liveUrl: "https://example.com",
     problems: "Обеспечение плавного drag-and-drop опыта и синхронизация состояния между множеством пользователей.",
     solutions: "Использование dnd-kit для оптимизированного DnD, Socket.io для real-time обновлений и optimistic updates для мгновенного отклика UI.",
@@ -38,7 +36,6 @@ const projects: Project[] = [
     fullDescription: "Аналитическая панель для отслеживания бизнес-метрик. Включает интерактивные графики, фильтры по периодам, экспорт отчетов и настраиваемые виджеты. Данные обновляются в реальном времени без перезагрузки страницы.",
     image: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&h=600&fit=crop",
     technologies: ["React", "TypeScript", "D3.js", "Recharts", "TanStack Query", "Express"],
-    githubUrl: "https://github.com",
     problems: "Визуализация больших объемов данных без потери производительности и поддержка различных типов графиков.",
     solutions: "Виртуализация данных, ленивая загрузка графиков, использование Web Workers для вычислений и кэширование с TanStack Query.",
   },
@@ -49,7 +46,6 @@ const projects: Project[] = [
     fullDescription: "Интеллектуальный чат-ассистент на базе OpenAI GPT. Поддерживает контекстные диалоги, обучение на документации компании, интеграцию с CRM и автоматическое создание тикетов поддержки.",
     image: "https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800&h=600&fit=crop",
     technologies: ["Next.js", "OpenAI API", "LangChain", "Pinecone", "Redis", "Vercel AI SDK"],
-    githubUrl: "https://github.com",
     liveUrl: "https://example.com",
     problems: "Обеспечение релевантных ответов на основе документации и оптимизация затрат на API.",
     solutions: "RAG архитектура с векторной БД Pinecone, streaming responses для быстрого отклика и кэширование частых запросов.",
@@ -61,7 +57,6 @@ const projects: Project[] = [
     fullDescription: "Мобильно-ориентированная социальная платформа с бесконечной лентой постов, системой лайков и комментариев, stories с автоудалением, приватными сообщениями и push-уведомлениями.",
     image: "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=800&h=600&fit=crop",
     technologies: ["React Native", "Expo", "Firebase", "Node.js", "GraphQL", "AWS S3"],
-    githubUrl: "https://github.com",
     problems: "Оптимизация производительности ленты с большим количеством медиа-контента и реализация real-time чата.",
     solutions: "Виртуализация списков с FlashList, lazy loading изображений, Firebase Realtime Database для чата и CDN для медиа.",
   },
@@ -72,7 +67,6 @@ const projects: Project[] = [
     fullDescription: "Комплексное решение для мониторинга серверов и приложений. Сбор метрик, визуализация логов, настраиваемые алерты через различные каналы (Slack, Email, SMS) и автоматическое масштабирование.",
     image: "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?w=800&h=600&fit=crop",
     technologies: ["Go", "Prometheus", "Grafana", "Docker", "Kubernetes", "PostgreSQL"],
-    githubUrl: "https://github.com",
     problems: "Обработка и хранение больших объемов метрик с минимальной задержкой.",
     solutions: "Time-series база Prometheus, агрегация данных, retention policies и горизонтальное масштабирование сборщиков.",
   },
@@ -208,20 +202,8 @@ export function ProjectsSection() {
                   </div>
                 )}
 
-                <div className="flex flex-wrap gap-3 pt-4">
-                  {selectedProject.githubUrl && (
-                    <Button variant="outline" asChild data-testid="link-project-github">
-                      <a
-                        href={selectedProject.githubUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <Github className="w-4 h-4 mr-2" />
-                        GitHub
-                      </a>
-                    </Button>
-                  )}
-                  {selectedProject.liveUrl && (
+                {selectedProject.liveUrl && (
+                  <div className="flex flex-wrap gap-3 pt-4">
                     <Button asChild data-testid="link-project-live">
                       <a
                         href={selectedProject.liveUrl}
@@ -232,8 +214,8 @@ export function ProjectsSection() {
                         Открыть сайт
                       </a>
                     </Button>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             </>
           )}

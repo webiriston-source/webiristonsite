@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   Home, User, FolderOpen, Mail, Moon, Sun, 
-  Terminal, Music, Zap, Copy, ExternalLink, Github
+  Terminal, Music, Zap, Copy
 } from "lucide-react";
+import { SiTelegram } from "react-icons/si";
 import { useTheme } from "@/components/theme-provider";
 
 interface MenuPosition {
@@ -114,10 +115,10 @@ export function CustomContextMenu() {
       action: copyLink,
     },
     {
-      label: "GitHub",
-      icon: <Github className="w-4 h-4" />,
+      label: "Telegram",
+      icon: <SiTelegram className="w-4 h-4" />,
       action: () => {
-        window.open("https://github.com", "_blank");
+        window.open("https://t.me/alliniriston", "_blank");
         setIsOpen(false);
       },
     },
