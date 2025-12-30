@@ -27,25 +27,38 @@ export interface Urgency {
   daysMultiplier: number;
 }
 
+/**
+ * Базовые цены на типы проектов
+ * Цены соответствуют среднерыночным показателям СНГ (2024-2025)
+ * 
+ * Источники: FL.ru, Habr Career, Freelancehunt, средние ставки веб-студий
+ */
 export const projectTypes: ProjectType[] = [
-  { id: "landing", label: "Лендинг", basePrice: 15000, baseDays: 5 },
-  { id: "website", label: "Корпоративный сайт", basePrice: 40000, baseDays: 14 },
-  { id: "ecommerce", label: "Интернет-магазин", basePrice: 80000, baseDays: 30 },
-  { id: "saas", label: "SaaS-платформа", basePrice: 150000, baseDays: 60 },
-  { id: "webapp", label: "Веб-приложение", basePrice: 100000, baseDays: 45 },
-  { id: "telegram-bot", label: "Telegram-бот", basePrice: 25000, baseDays: 10 },
-  { id: "other", label: "Другое", basePrice: 30000, baseDays: 14 },
+  { id: "landing", label: "Лендинг", basePrice: 45000, baseDays: 7 },
+  { id: "website", label: "Корпоративный сайт", basePrice: 120000, baseDays: 21 },
+  { id: "ecommerce", label: "Интернет-магазин", basePrice: 250000, baseDays: 45 },
+  { id: "saas", label: "SaaS-платформа", basePrice: 500000, baseDays: 90 },
+  { id: "webapp", label: "Веб-приложение", basePrice: 350000, baseDays: 60 },
+  { id: "telegram-bot", label: "Telegram-бот", basePrice: 60000, baseDays: 14 },
+  { id: "other", label: "Другое", basePrice: 80000, baseDays: 21 },
 ];
 
+/**
+ * Дополнительные функции и модули
+ * Цены указаны за базовую реализацию каждой функции
+ */
 export const features: Feature[] = [
-  { id: "auth", label: "Авторизация / Регистрация", price: 15000, days: 3 },
-  { id: "admin", label: "Админ-панель", price: 25000, days: 7 },
-  { id: "payment", label: "Онлайн-оплата", price: 20000, days: 5 },
-  { id: "profile", label: "Личный кабинет", price: 20000, days: 5 },
-  { id: "integrations", label: "Интеграции (API, CRM, и т.д.)", price: 15000, days: 4 },
-  { id: "multilang", label: "Мультиязычность", price: 10000, days: 3 },
+  { id: "auth", label: "Авторизация / Регистрация", price: 35000, days: 5 },
+  { id: "admin", label: "Админ-панель", price: 80000, days: 14 },
+  { id: "payment", label: "Онлайн-оплата", price: 50000, days: 7 },
+  { id: "profile", label: "Личный кабинет", price: 60000, days: 10 },
+  { id: "integrations", label: "Интеграции (API, CRM, и т.д.)", price: 45000, days: 7 },
+  { id: "multilang", label: "Мультиязычность", price: 30000, days: 5 },
 ];
 
+/**
+ * Коэффициенты сложности дизайна
+ */
 export const designComplexities: DesignComplexity[] = [
   { 
     id: "basic", 
@@ -57,23 +70,26 @@ export const designComplexities: DesignComplexity[] = [
     id: "modern", 
     label: "Современный", 
     description: "Уникальный дизайн, анимации, адаптивность",
-    coefficient: 1.3 
+    coefficient: 1.4 
   },
   { 
     id: "premium", 
     label: "Премиум + UX", 
     description: "Авторский дизайн, глубокая проработка UX",
-    coefficient: 1.6 
+    coefficient: 1.8 
   },
 ];
 
+/**
+ * Коэффициенты срочности
+ */
 export const urgencies: Urgency[] = [
   { 
     id: "relaxed", 
     label: "Не срочно", 
     description: "Гибкие сроки, приоритет качества",
-    coefficient: 0.9,
-    daysMultiplier: 1.2
+    coefficient: 0.95,
+    daysMultiplier: 1.3
   },
   { 
     id: "standard", 
@@ -86,7 +102,7 @@ export const urgencies: Urgency[] = [
     id: "urgent", 
     label: "Срочно", 
     description: "Ускоренная разработка, приоритетная работа",
-    coefficient: 1.5,
+    coefficient: 1.6,
     daysMultiplier: 0.6
   },
 ];
@@ -98,6 +114,12 @@ export interface EstimationResult {
   maxDays: number;
 }
 
+/**
+ * Расчёт предварительной оценки проекта
+ * 
+ * Формула: (BasePrice + ΣFeatures) × DesignCoef × UrgencyCoef
+ * Вилка: ±20% по цене, ±15% по срокам
+ */
 export function calculateEstimate(
   projectTypeId: string,
   selectedFeatures: string[],

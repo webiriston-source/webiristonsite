@@ -15,7 +15,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { insertContactMessageSchema, type InsertContactMessage } from "@shared/schema";
+import { contactFormSchema, type ContactFormData } from "@shared/schema";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -170,8 +170,8 @@ export function ContactSection() {
   const [isSuccess, setIsSuccess] = useState(false);
   const { toast } = useToast();
 
-  const form = useForm<InsertContactMessage>({
-    resolver: zodResolver(insertContactMessageSchema),
+  const form = useForm<ContactFormData>({
+    resolver: zodResolver(contactFormSchema),
     defaultValues: {
       name: "",
       email: "",
@@ -180,7 +180,7 @@ export function ContactSection() {
   });
 
   const mutation = useMutation({
-    mutationFn: async (data: InsertContactMessage) => {
+    mutationFn: async (data: ContactFormData) => {
       const response = await apiRequest("POST", "/api/contact", data);
       return response;
     },
@@ -208,7 +208,7 @@ export function ContactSection() {
     }
   }, [isSuccess]);
 
-  const onSubmit = (data: InsertContactMessage) => {
+  const onSubmit = (data: ContactFormData) => {
     mutation.mutate(data);
   };
 
@@ -328,6 +328,10 @@ export function ContactSection() {
                       </>
                     )}
                   </Button>
+                  
+                  <p className="text-xs text-muted-foreground text-center mt-4">
+                    Отправляя форму, вы соглашаетесь на обработку персональных данных.
+                  </p>
                 </form>
               </Form>
             </div>

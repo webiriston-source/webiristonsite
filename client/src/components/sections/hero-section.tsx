@@ -4,7 +4,7 @@ import { ArrowDown, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SiTelegram } from "react-icons/si";
 
-const roles = ["Fullstack Разработчик", "Создатель", "Проблеморешатель"];
+const roles = ["Fullstack Разработчик", "Архитектор решений", "Создатель продуктов"];
 
 export function HeroSection() {
   const [currentRoleIndex, setCurrentRoleIndex] = useState(0);
@@ -55,7 +55,7 @@ export function HeroSection() {
             transition={{ duration: 0.5 }}
           >
             <span className="inline-block px-4 py-2 rounded-full bg-primary/10 text-primary text-sm font-medium mb-6">
-              Добро пожаловать в мое портфолио
+              Цифровая студия веб-разработки
             </span>
           </motion.div>
 
@@ -87,8 +87,8 @@ export function HeroSection() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.3 }}
           >
-            Создаю современные веб-приложения с фокусом на производительность,
-            пользовательский опыт и чистый код. Превращаю идеи в работающие продукты.
+            Разрабатываю сайты, веб-приложения и SaaS-платформы под ключ.
+            От идеи до запуска — с фокусом на качество, сроки и результат для бизнеса.
           </motion.p>
 
           <motion.div
