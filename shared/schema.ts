@@ -58,3 +58,17 @@ export interface Skill {
   experience: string;
   related: string[];
 }
+
+export const estimationRequestSchema = z.object({
+  projectType: z.string().min(1, "Выберите тип проекта"),
+  features: z.array(z.string()),
+  designComplexity: z.string().min(1, "Выберите сложность дизайна"),
+  urgency: z.string().min(1, "Выберите срочность"),
+  budget: z.string().optional(),
+  contactName: z.string().min(2, "Имя должно содержать минимум 2 символа"),
+  contactEmail: z.string().email("Введите корректный email"),
+  contactTelegram: z.string().optional(),
+  description: z.string().optional(),
+});
+
+export type EstimationRequest = z.infer<typeof estimationRequestSchema>;
