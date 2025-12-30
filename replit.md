@@ -2,11 +2,28 @@
 
 ## Overview
 
-This is a modern, interactive developer portfolio website built as a single-page application (SPA). The site showcases technical expertise through the portfolio itself, featuring smooth animations, an interactive terminal, skill visualization, and a contact form. Built with a focus on performance and user experience, it demonstrates fullstack capabilities while serving as a professional portfolio.
+This is a modern, interactive developer portfolio website built as a single-page application (SPA) for @alliniriston. The site showcases technical expertise through the portfolio itself, featuring smooth animations, an interactive terminal, skill visualization, and a contact form with Telegram integration. Built with a focus on performance and user experience, it demonstrates fullstack capabilities while serving as a professional portfolio.
+
+## Recent Changes
+
+**December 30, 2025:**
+- Integrated Telegram Bot API for contact form - messages sent directly to @alliniriston
+- Removed all GitHub and LinkedIn references - only Telegram as social contact
+- Extracted project data to `client/src/data/projects.ts` for scalability
+- Updated SEO metadata with canonical URL, Open Graph tags, and proper author info
+- Removed `githubUrl` field from Project schema
 
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
+
+## Environment Variables
+
+Required for contact form functionality:
+- `TELEGRAM_BOT_TOKEN` - Bot token from @BotFather
+- `TELEGRAM_CHAT_ID` - Chat ID to receive messages
+
+If these are not set, the contact form will still save messages locally but won't send to Telegram.
 
 ## System Architecture
 
@@ -49,8 +66,9 @@ Preferred communication style: Simple, everyday language.
 **API Design**
 - RESTful API endpoints under `/api` prefix
 - **Contact Form API**: 
-  - `POST /api/contact` - Submit contact messages with Zod validation
+  - `POST /api/contact` - Submit contact messages with Zod validation, sends to Telegram
   - `GET /api/contact` - Retrieve contact messages
+- **Telegram Integration**: Server-side notification to @alliniriston via Bot API
 - Request/response logging middleware with timing information
 - Error handling with validation error formatting using `zod-validation-error`
 
