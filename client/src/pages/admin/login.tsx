@@ -10,13 +10,14 @@ import { useToast } from "@/hooks/use-toast";
 import { Lock } from "lucide-react";
 
 export default function AdminLogin() {
+  const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
   const loginMutation = useMutation({
-    mutationFn: async (password: string) => {
-      const response = await apiRequest("POST", "/api/admin/login", { password });
+    mutationFn: async (credentials: { login: string; password: string }) => {
+      const response = await apiRequest("POST", "/api/admin/login", credentials);
       return response.json();
     },
     onSuccess: () => {
@@ -26,7 +27,7 @@ export default function AdminLogin() {
     onError: (error: Error) => {
       toast({
         title: "Ошибка входа",
-        description: error.message || "Неверный пароль",
+        description: error.message || "Неверный логин или пароль",
         variant: "destructive",
       });
     },
@@ -34,7 +35,7 @@ export default function AdminLogin() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    loginMutation.mutate(password);
+    loginMutation.mutate({ login, password });
   };
 
   return (
@@ -47,10 +48,21 @@ export default function AdminLogin() {
             </div>
           </div>
           <CardTitle>Вход в админ-панель</CardTitle>
-          <CardDescription>Введите пароль для доступа</CardDescription>
+          <CardDescription>Введите логин и пароль для доступа</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="login">Логин</Label>
+              <Input
+                id="login"
+                type="text"
+                value={login}
+                onChange={(e) => setLogin(e.target.value)}
+                placeholder="Введите логин"
+                data-testid="input-admin-login"
+              />
+            </div>
             <div className="space-y-2">
               <Label htmlFor="password">Пароль</Label>
               <Input

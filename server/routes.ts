@@ -406,20 +406,21 @@ export async function registerRoutes(
 
   app.post("/api/admin/login", async (req, res) => {
     try {
-      const { password } = req.body;
+      const { login, password } = req.body;
+      const adminLogin = process.env.ADMIN_LOGIN;
       const adminPassword = process.env.ADMIN_PASSWORD;
       
-      if (!adminPassword) {
-        console.error("ADMIN_PASSWORD environment variable is not set");
+      if (!adminLogin || !adminPassword) {
+        console.error("ADMIN_LOGIN or ADMIN_PASSWORD environment variable is not set");
         return res.status(500).json({ error: "Сервер не настроен для авторизации" });
       }
       
-      if (password === adminPassword) {
+      if (login === adminLogin && password === adminPassword) {
         req.session.isAdmin = true;
         return res.json({ success: true });
       }
       
-      return res.status(401).json({ error: "Неверный пароль" });
+      return res.status(401).json({ error: "Неверный логин или пароль" });
     } catch (error) {
       console.error("Error during login:", error);
       return res.status(500).json({ error: "Internal server error" });
