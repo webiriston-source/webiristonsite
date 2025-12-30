@@ -8,6 +8,7 @@ const navItems = [
   { label: "Главная", href: "#hero" },
   { label: "О себе", href: "#about" },
   { label: "Проекты", href: "#projects" },
+  { label: "Оценка", href: "#estimate" },
   { label: "Контакты", href: "#contact" },
 ];
 
