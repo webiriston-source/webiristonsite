@@ -66,7 +66,7 @@ export function HeroSection() {
             transition={{ duration: 0.5, delay: 0.1 }}
           >
             <span className="text-foreground">Привет, я </span>
-            <span className="text-primary">Разработчик</span>
+            <span className="text-primary">IRSON</span>
           </motion.h1>
 
           <motion.div
