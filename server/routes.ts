@@ -131,20 +131,34 @@ async function sendEstimationToTelegram(data: EstimationData, estimation: Estima
     ? data.features.map(f => featureLabels[f] || f).join(", ")
     : "Не выбраны";
 
+  const contactLines = [
+    `Имя: ${data.contactName}`,
+    `Email: ${data.contactEmail}`,
+  ];
+  if (data.contactTelegram) {
+    contactLines.push(`Telegram: ${data.contactTelegram}`);
+  }
+
+  const projectLines = [
+    `Тип: ${projectTypeLabels[data.projectType] || data.projectType}`,
+    `Функции: ${featuresText}`,
+    `Дизайн: ${designLabels[data.designComplexity] || data.designComplexity}`,
+    `Срочность: ${urgencyLabels[data.urgency] || data.urgency}`,
+  ];
+  if (data.budget) {
+    projectLines.push(`Бюджет клиента: ${data.budget}`);
+  }
+  if (data.description) {
+    projectLines.push(`Описание: ${data.description}`);
+  }
+
   const text = `📋 Новая заявка на оценку проекта
 
 👤 Контакт:
-Имя: ${data.contactName}
-Email: ${data.contactEmail}
-${data.contactTelegram ? `Telegram: ${data.contactTelegram}` : ""}
+${contactLines.join("\n")}
 
 📦 Детали проекта:
-Тип: ${projectTypeLabels[data.projectType] || data.projectType}
-Функции: ${featuresText}
-Дизайн: ${designLabels[data.designComplexity] || data.designComplexity}
-Срочность: ${urgencyLabels[data.urgency] || data.urgency}
-${data.budget ? `Бюджет клиента: ${data.budget}` : ""}
-${data.description ? `Описание: ${data.description}` : ""}
+${projectLines.join("\n")}
 
 💰 Автооценка:
 Стоимость: ${formatPrice(estimation.minPrice)} — ${formatPrice(estimation.maxPrice)}
@@ -228,7 +242,9 @@ export async function registerRoutes(
 
   app.post("/api/estimate", async (req, res) => {
     try {
-      const parseResult = estimationRequestSchema.safeParse(req.body);
+      const { estimation, ...requestData } = req.body;
+      
+      const parseResult = estimationRequestSchema.safeParse(requestData);
       
       if (!parseResult.success) {
         const validationError = fromError(parseResult.error);
@@ -238,10 +254,14 @@ export async function registerRoutes(
         });
       }
 
-      const data = parseResult.data;
-      const estimation = req.body.estimation;
+      if (!estimation || typeof estimation.minPrice !== 'number' || typeof estimation.maxPrice !== 'number') {
+        return res.status(400).json({
+          error: "Validation error",
+          message: "Estimation data is required"
+        });
+      }
 
-      await sendEstimationToTelegram(data, estimation);
+      await sendEstimationToTelegram(parseResult.data, estimation);
       
       return res.status(201).json({ 
         success: true, 
