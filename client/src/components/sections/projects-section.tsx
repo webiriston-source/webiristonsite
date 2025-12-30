@@ -5,72 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { Project } from "@shared/schema";
-
-const projects: Project[] = [
-  {
-    id: "1",
-    title: "E-Commerce Platform",
-    description: "Современная платформа электронной коммерции с корзиной, оплатой и админ-панелью.",
-    fullDescription: "Полноценная e-commerce платформа, разработанная с нуля. Включает каталог товаров с фильтрацией и поиском, корзину покупок, интеграцию платежных систем, личный кабинет пользователя и полнофункциональную админ-панель для управления товарами и заказами.",
-    image: "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=800&h=600&fit=crop",
-    technologies: ["Next.js", "TypeScript", "Prisma", "PostgreSQL", "Stripe", "Tailwind CSS"],
-    liveUrl: "https://example.com",
-    problems: "Необходимость обеспечить высокую производительность при большом каталоге товаров и реализовать безопасную обработку платежей.",
-    solutions: "Использование ISR для страниц каталога, оптимизация запросов к БД с Prisma, интеграция Stripe для безопасных платежей с webhooks.",
-  },
-  {
-    id: "2",
-    title: "Task Management App",
-    description: "Приложение для управления задачами в реальном времени с drag-and-drop интерфейсом.",
-    fullDescription: "Канбан-доска для управления проектами и задачами. Поддерживает создание досок, колонок и карточек с возможностью перетаскивания. Реализована система уведомлений, комментарии к задачам и синхронизация между пользователями в реальном времени.",
-    image: "https://images.unsplash.com/photo-1611224923853-80b023f02d71?w=800&h=600&fit=crop",
-    technologies: ["React", "Node.js", "Socket.io", "MongoDB", "Redux", "dnd-kit"],
-    liveUrl: "https://example.com",
-    problems: "Обеспечение плавного drag-and-drop опыта и синхронизация состояния между множеством пользователей.",
-    solutions: "Использование dnd-kit для оптимизированного DnD, Socket.io для real-time обновлений и optimistic updates для мгновенного отклика UI.",
-  },
-  {
-    id: "3",
-    title: "Analytics Dashboard",
-    description: "Интерактивный дашборд с визуализацией данных и аналитикой в реальном времени.",
-    fullDescription: "Аналитическая панель для отслеживания бизнес-метрик. Включает интерактивные графики, фильтры по периодам, экспорт отчетов и настраиваемые виджеты. Данные обновляются в реальном времени без перезагрузки страницы.",
-    image: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&h=600&fit=crop",
-    technologies: ["React", "TypeScript", "D3.js", "Recharts", "TanStack Query", "Express"],
-    problems: "Визуализация больших объемов данных без потери производительности и поддержка различных типов графиков.",
-    solutions: "Виртуализация данных, ленивая загрузка графиков, использование Web Workers для вычислений и кэширование с TanStack Query.",
-  },
-  {
-    id: "4",
-    title: "AI Chat Assistant",
-    description: "Чат-бот с искусственным интеллектом для автоматизации клиентской поддержки.",
-    fullDescription: "Интеллектуальный чат-ассистент на базе OpenAI GPT. Поддерживает контекстные диалоги, обучение на документации компании, интеграцию с CRM и автоматическое создание тикетов поддержки.",
-    image: "https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800&h=600&fit=crop",
-    technologies: ["Next.js", "OpenAI API", "LangChain", "Pinecone", "Redis", "Vercel AI SDK"],
-    liveUrl: "https://example.com",
-    problems: "Обеспечение релевантных ответов на основе документации и оптимизация затрат на API.",
-    solutions: "RAG архитектура с векторной БД Pinecone, streaming responses для быстрого отклика и кэширование частых запросов.",
-  },
-  {
-    id: "5",
-    title: "Social Media App",
-    description: "Социальная сеть с лентой новостей, сторис и мессенджером.",
-    fullDescription: "Мобильно-ориентированная социальная платформа с бесконечной лентой постов, системой лайков и комментариев, stories с автоудалением, приватными сообщениями и push-уведомлениями.",
-    image: "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=800&h=600&fit=crop",
-    technologies: ["React Native", "Expo", "Firebase", "Node.js", "GraphQL", "AWS S3"],
-    problems: "Оптимизация производительности ленты с большим количеством медиа-контента и реализация real-time чата.",
-    solutions: "Виртуализация списков с FlashList, lazy loading изображений, Firebase Realtime Database для чата и CDN для медиа.",
-  },
-  {
-    id: "6",
-    title: "DevOps Monitoring Tool",
-    description: "Система мониторинга инфраструктуры с алертами и метриками.",
-    fullDescription: "Комплексное решение для мониторинга серверов и приложений. Сбор метрик, визуализация логов, настраиваемые алерты через различные каналы (Slack, Email, SMS) и автоматическое масштабирование.",
-    image: "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?w=800&h=600&fit=crop",
-    technologies: ["Go", "Prometheus", "Grafana", "Docker", "Kubernetes", "PostgreSQL"],
-    problems: "Обработка и хранение больших объемов метрик с минимальной задержкой.",
-    solutions: "Time-series база Prometheus, агрегация данных, retention policies и горизонтальное масштабирование сборщиков.",
-  },
-];
+import { projects } from "@/data/projects";
 
 export function ProjectsSection() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
