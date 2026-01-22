@@ -1,0 +1,17 @@
+{
+  "users": [],
+  "leads": [
+    {
+      "type": "contact",
+      "status": "new",
+      "scoring": "C",
+      "name": "IRISTON",
+      "email": "webiriston@gmail.com",
+      "message": "ТЕСТОВОЕ СООБЩЕНИЕ",
+      "id": "18bfb184-5de2-470c-b74e-cbe24662f634",
+      "createdAt": "2026-01-20T18:06:17.938Z",
+      "updatedAt": "2026-01-20T18:06:17.938Z"
+    }
+  ],
+  "projects": []
+}

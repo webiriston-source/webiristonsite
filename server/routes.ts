@@ -1,9 +1,9 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { storage } from "./storage";
-import { contactFormSchema, estimationRequestSchema } from "@shared/schema";
+import { storage } from "./storage.js";
+import { contactFormSchema, estimationRequestSchema } from "../shared/schema.js";
 import { fromError } from "zod-validation-error";
-import { calculateScoring, getScoringEmoji } from "./scoring";
+import { calculateScoring, getScoringEmoji } from "./scoring.js";
 
 interface EstimationResult {
   minPrice: number;

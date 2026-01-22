@@ -1,4 +1,4 @@
-import type { Scoring } from "@shared/schema";
+import type { Scoring } from "../shared/schema.js";
 
 interface ScoringInput {
   type: "contact" | "estimation";
