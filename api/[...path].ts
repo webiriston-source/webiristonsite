@@ -1,3 +1,3 @@
-import handler from "./_app.js";
+import handler from "./_app.ts";
 
 export default handler;

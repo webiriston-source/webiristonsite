@@ -1,7 +1,7 @@
 import { type Request, Response, NextFunction } from "express";
-import { serveStatic } from "./static.js";
+import { serveStatic } from "./static.ts";
 import { createServer } from "http";
-import { createApp } from "./app.js";
+import { createApp } from "./app.ts";
 
 declare module "express-session" {
   interface SessionData {

@@ -5,8 +5,8 @@ import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import MemoryStore from "memorystore";
 import { randomUUID } from "crypto";
-import { registerRoutes } from "./routes.js";
-import { databaseUrlSource, isDatabaseConfigured, pool } from "./db.js";
+import { registerRoutes } from "./routes.ts";
+import { databaseUrlSource, isDatabaseConfigured, pool } from "./db.ts";
 
 /**
  * Creates an Express app with all routes registered.

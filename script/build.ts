@@ -1,6 +1,6 @@
 import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
-import { rm, readFile, mkdir } from "fs/promises";
+import { rm, readFile } from "fs/promises";
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
@@ -60,21 +60,6 @@ async function buildAll() {
     logLevel: "info",
   });
 
-  console.log("building serverless api bundle...");
-  await mkdir("server-build", { recursive: true });
-  await esbuild({
-    entryPoints: ["server/app.ts"],
-    platform: "node",
-    bundle: true,
-    format: "esm",
-    outfile: "server-build/app.js",
-    define: {
-      "process.env.NODE_ENV": '"production"',
-    },
-    minify: true,
-    external: externals,
-    logLevel: "info",
-  });
 }
 
 buildAll().catch((err) => {
