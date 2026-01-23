@@ -313,4 +313,142 @@ class MemoryStorage implements IStorage {
   }
 }
 
-export const storage = isDatabaseConfigured ? new DatabaseStorage() : new MemoryStorage();
+class ResilientStorage implements IStorage {
+  private primary: IStorage | null;
+  private fallback: IStorage;
+  private useFallback = false;
+
+  constructor(primary: IStorage | null, fallback: IStorage) {
+    this.primary = primary;
+    this.fallback = fallback;
+  }
+
+  private async run<T>(
+    operation: string,
+    primaryCall: () => Promise<T>,
+    fallbackCall: () => Promise<T>
+  ): Promise<T> {
+    if (!this.primary || this.useFallback) {
+      return await fallbackCall();
+    }
+    try {
+      return await primaryCall();
+    } catch (error) {
+      this.useFallback = true;
+      console.error("[storage] fallback", {
+        operation,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return await fallbackCall();
+    }
+  }
+
+  async getUser(id: string): Promise<User | undefined> {
+    return this.run(
+      "getUser",
+      () => this.primary!.getUser(id),
+      () => this.fallback.getUser(id)
+    );
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    return this.run(
+      "getUserByUsername",
+      () => this.primary!.getUserByUsername(username),
+      () => this.fallback.getUserByUsername(username)
+    );
+  }
+
+  async createUser(user: InsertUser): Promise<User> {
+    return this.run(
+      "createUser",
+      () => this.primary!.createUser(user),
+      () => this.fallback.createUser(user)
+    );
+  }
+
+  async createLead(lead: InsertLead): Promise<Lead> {
+    return this.run(
+      "createLead",
+      () => this.primary!.createLead(lead),
+      () => this.fallback.createLead(lead)
+    );
+  }
+
+  async getLeads(filters?: LeadFilters): Promise<Lead[]> {
+    return this.run(
+      "getLeads",
+      () => this.primary!.getLeads(filters),
+      () => this.fallback.getLeads(filters)
+    );
+  }
+
+  async getLead(id: string): Promise<Lead | undefined> {
+    return this.run(
+      "getLead",
+      () => this.primary!.getLead(id),
+      () => this.fallback.getLead(id)
+    );
+  }
+
+  async updateLeadStatus(id: string, status: string): Promise<Lead | undefined> {
+    return this.run(
+      "updateLeadStatus",
+      () => this.primary!.updateLeadStatus(id, status),
+      () => this.fallback.updateLeadStatus(id, status)
+    );
+  }
+
+  async getLeadStats(): Promise<LeadStats> {
+    return this.run(
+      "getLeadStats",
+      () => this.primary!.getLeadStats(),
+      () => this.fallback.getLeadStats()
+    );
+  }
+
+  async getProjects(): Promise<Project[]> {
+    return this.run(
+      "getProjects",
+      () => this.primary!.getProjects(),
+      () => this.fallback.getProjects()
+    );
+  }
+
+  async getProject(id: string): Promise<Project | undefined> {
+    return this.run(
+      "getProject",
+      () => this.primary!.getProject(id),
+      () => this.fallback.getProject(id)
+    );
+  }
+
+  async createProject(project: InsertProject): Promise<Project> {
+    return this.run(
+      "createProject",
+      () => this.primary!.createProject(project),
+      () => this.fallback.createProject(project)
+    );
+  }
+
+  async updateProject(id: string, project: Partial<InsertProject>): Promise<Project | undefined> {
+    return this.run(
+      "updateProject",
+      () => this.primary!.updateProject(id, project),
+      () => this.fallback.updateProject(id, project)
+    );
+  }
+
+  async deleteProject(id: string): Promise<boolean> {
+    return this.run(
+      "deleteProject",
+      () => this.primary!.deleteProject(id),
+      () => this.fallback.deleteProject(id)
+    );
+  }
+}
+
+const memoryStorage = new MemoryStorage();
+const databaseStorage = isDatabaseConfigured ? new DatabaseStorage() : null;
+
+export const storage = new ResilientStorage(databaseStorage, memoryStorage);

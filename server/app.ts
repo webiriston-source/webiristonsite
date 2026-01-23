@@ -70,9 +70,20 @@ export async function createApp() {
 
   const PgSession = connectPgSimple(session);
   const MemoryStoreSession = MemoryStore(session);
-  const sessionStore = pool
+  let usePgSession = Boolean(pool);
+
+  if (pool) {
+    try {
+      await pool.query("select 1");
+    } catch (error) {
+      usePgSession = false;
+      console.error("Database connection failed. Falling back to memory sessions.", error);
+    }
+  }
+
+  const sessionStore = usePgSession
     ? new PgSession({
-        pool,
+        pool: pool!,
         tableName: "user_sessions",
         createTableIfMissing: true,
       })
