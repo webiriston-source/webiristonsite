@@ -4,7 +4,7 @@ import {
   type Project, type InsertProject,
   users, leads, projects
 } from "../shared/schema.js";
-import { db } from "./db.js";
+import { db, isDatabaseConfigured } from "./db.js";
 import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
@@ -45,22 +45,22 @@ export interface LeadStats {
 
 export class DatabaseStorage implements IStorage {
   async getUser(id: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.id, id));
+    const [user] = await db!.select().from(users).where(eq(users.id, id));
     return user || undefined;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.username, username));
+    const [user] = await db!.select().from(users).where(eq(users.username, username));
     return user || undefined;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const [user] = await db.insert(users).values(insertUser).returning();
+    const [user] = await db!.insert(users).values(insertUser).returning();
     return user;
   }
 
   async createLead(insertLead: InsertLead): Promise<Lead> {
-    const [lead] = await db
+    const [lead] = await db!
       .insert(leads)
       .values({ id: randomUUID(), ...insertLead })
       .returning();
@@ -68,7 +68,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getLeads(filters?: LeadFilters): Promise<Lead[]> {
-    let query = db.select().from(leads);
+    let query = db!.select().from(leads);
     
     const conditions = [];
     
@@ -89,19 +89,23 @@ export class DatabaseStorage implements IStorage {
     }
     
     if (conditions.length > 0) {
-      return await db.select().from(leads).where(and(...conditions)).orderBy(desc(leads.createdAt));
+      return await db!
+        .select()
+        .from(leads)
+        .where(and(...conditions))
+        .orderBy(desc(leads.createdAt));
     }
     
-    return await db.select().from(leads).orderBy(desc(leads.createdAt));
+    return await db!.select().from(leads).orderBy(desc(leads.createdAt));
   }
 
   async getLead(id: string): Promise<Lead | undefined> {
-    const [lead] = await db.select().from(leads).where(eq(leads.id, id));
+    const [lead] = await db!.select().from(leads).where(eq(leads.id, id));
     return lead || undefined;
   }
 
   async updateLeadStatus(id: string, status: string): Promise<Lead | undefined> {
-    const [lead] = await db
+    const [lead] = await db!
       .update(leads)
       .set({ status, updatedAt: new Date() })
       .where(eq(leads.id, id))
@@ -110,7 +114,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getLeadStats(): Promise<LeadStats> {
-    const allLeads = await db.select().from(leads);
+    const allLeads = await db!.select().from(leads);
     
     const now = new Date();
     const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -147,21 +151,21 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getProjects(): Promise<Project[]> {
-    return await db.select().from(projects).orderBy(projects.sortOrder);
+    return await db!.select().from(projects).orderBy(projects.sortOrder);
   }
 
   async getProject(id: string): Promise<Project | undefined> {
-    const [project] = await db.select().from(projects).where(eq(projects.id, id));
+    const [project] = await db!.select().from(projects).where(eq(projects.id, id));
     return project || undefined;
   }
 
   async createProject(insertProject: InsertProject): Promise<Project> {
-    const [project] = await db.insert(projects).values(insertProject).returning();
+    const [project] = await db!.insert(projects).values(insertProject).returning();
     return project;
   }
 
   async updateProject(id: string, projectData: Partial<InsertProject>): Promise<Project | undefined> {
-    const [project] = await db
+    const [project] = await db!
       .update(projects)
       .set({ ...projectData, updatedAt: new Date() })
       .where(eq(projects.id, id))
@@ -170,9 +174,143 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteProject(id: string): Promise<boolean> {
-    const result = await db.delete(projects).where(eq(projects.id, id)).returning();
+    const result = await db!.delete(projects).where(eq(projects.id, id)).returning();
     return result.length > 0;
   }
 }
 
-export const storage = new DatabaseStorage();
+class MemoryStorage implements IStorage {
+  private users: User[] = [];
+  private leads: Lead[] = [];
+  private projects: Project[] = [];
+
+  async getUser(id: string): Promise<User | undefined> {
+    return this.users.find((user) => user.id === id);
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    return this.users.find((user) => user.username === username);
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const user: User = { id: randomUUID(), ...insertUser };
+    this.users.push(user);
+    return user;
+  }
+
+  async createLead(insertLead: InsertLead): Promise<Lead> {
+    const now = new Date();
+    const lead: Lead = {
+      id: randomUUID(),
+      createdAt: now,
+      updatedAt: now,
+      ...insertLead,
+    };
+    this.leads.unshift(lead);
+    return lead;
+  }
+
+  async getLeads(filters?: LeadFilters): Promise<Lead[]> {
+    let results = [...this.leads];
+    if (filters?.type) {
+      results = results.filter((lead) => lead.type === filters.type);
+    }
+    if (filters?.status) {
+      results = results.filter((lead) => lead.status === filters.status);
+    }
+    if (filters?.scoring) {
+      results = results.filter((lead) => lead.scoring === filters.scoring);
+    }
+    if (filters?.startDate) {
+      results = results.filter((lead) => lead.createdAt >= filters.startDate!);
+    }
+    if (filters?.endDate) {
+      results = results.filter((lead) => lead.createdAt <= filters.endDate!);
+    }
+    return results;
+  }
+
+  async getLead(id: string): Promise<Lead | undefined> {
+    return this.leads.find((lead) => lead.id === id);
+  }
+
+  async updateLeadStatus(id: string, status: string): Promise<Lead | undefined> {
+    const lead = this.leads.find((entry) => entry.id === id);
+    if (!lead) return undefined;
+    lead.status = status;
+    lead.updatedAt = new Date();
+    return lead;
+  }
+
+  async getLeadStats(): Promise<LeadStats> {
+    const byType: Record<string, number> = {};
+    const byStatus: Record<string, number> = {};
+    const byScoring: Record<string, number> = {};
+
+    const now = new Date();
+    const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+
+    let thisMonth = 0;
+    let lastMonth = 0;
+
+    for (const lead of this.leads) {
+      byType[lead.type] = (byType[lead.type] || 0) + 1;
+      byStatus[lead.status] = (byStatus[lead.status] || 0) + 1;
+      byScoring[lead.scoring] = (byScoring[lead.scoring] || 0) + 1;
+
+      if (lead.createdAt >= startOfThisMonth) {
+        thisMonth++;
+      }
+      if (lead.createdAt >= startOfLastMonth && lead.createdAt <= endOfLastMonth) {
+        lastMonth++;
+      }
+    }
+
+    return {
+      total: this.leads.length,
+      byType,
+      byStatus,
+      byScoring,
+      thisMonth,
+      lastMonth,
+    };
+  }
+
+  async getProjects(): Promise<Project[]> {
+    return [...this.projects].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  }
+
+  async getProject(id: string): Promise<Project | undefined> {
+    return this.projects.find((project) => project.id === id);
+  }
+
+  async createProject(insertProject: InsertProject): Promise<Project> {
+    const now = new Date();
+    const project: Project = {
+      id: randomUUID(),
+      createdAt: now,
+      updatedAt: now,
+      ...insertProject,
+    };
+    this.projects.push(project);
+    return project;
+  }
+
+  async updateProject(id: string, projectData: Partial<InsertProject>): Promise<Project | undefined> {
+    const project = this.projects.find((entry) => entry.id === id);
+    if (!project) return undefined;
+    Object.assign(project, projectData, { updatedAt: new Date() });
+    return project;
+  }
+
+  async deleteProject(id: string): Promise<boolean> {
+    const index = this.projects.findIndex((entry) => entry.id === id);
+    if (index === -1) return false;
+    this.projects.splice(index, 1);
+    return true;
+  }
+}
+
+export const storage = isDatabaseConfigured ? new DatabaseStorage() : new MemoryStorage();

@@ -59,6 +59,11 @@ function formatPrice(price: number): string {
   return new Intl.NumberFormat("ru-RU").format(price) + " ₽";
 }
 
+type TelegramSendResult = {
+  ok: boolean;
+  reason?: string;
+};
+
 async function sendToTelegram(
   type: "contact" | "estimation",
   data: {
@@ -75,13 +80,13 @@ async function sendToTelegram(
   },
   scoring: string,
   estimation?: EstimationResult
-): Promise<boolean> {
+): Promise<TelegramSendResult> {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
 
   if (!botToken || !chatId) {
     console.warn("Telegram credentials not configured.");
-    return false;
+    return { ok: false, reason: "missing_credentials" };
   }
 
   const now = new Date();
@@ -148,15 +153,20 @@ Email: ${data.email}${data.telegram ? `\nTelegram: ${data.telegram}` : ""}
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
+      let errorData: unknown = null;
+      try {
+        errorData = await response.json();
+      } catch {
+        errorData = await response.text().catch(() => null);
+      }
       console.error("Telegram API error:", errorData);
-      return false;
+      return { ok: false, reason: `telegram_error_${response.status}` };
     }
 
-    return true;
+    return { ok: true };
   } catch (error) {
     console.error("Failed to send message to Telegram:", error);
-    return false;
+    return { ok: false, reason: "telegram_exception" };
   }
 }
 
@@ -190,7 +200,13 @@ export async function registerRoutes(app: Express): Promise<void> {
         message,
       });
 
-      await sendToTelegram("contact", { name, email, message }, scoring);
+      const telegramResult = await sendToTelegram("contact", { name, email, message }, scoring);
+      console.info("[api] sent_to_admin", {
+        requestId: (req as any).requestId,
+        type: "contact",
+        sent_to_admin: telegramResult.ok,
+        reason: telegramResult.reason || null,
+      });
       
       return res.status(201).json({ 
         success: true, 
@@ -198,7 +214,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         id: lead.id,
       });
     } catch (error) {
-      console.error("Error creating contact message:", error);
+      console.error("Error creating contact message:", (req as any).requestId, error);
       return res.status(500).json({ 
         error: "Internal server error",
         message: "Не удалось отправить сообщение" 
@@ -257,7 +273,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         estimatedMaxDays: estimation.maxDays,
       });
 
-      await sendToTelegram(
+      const telegramResult = await sendToTelegram(
         "estimation",
         {
           name: data.contactName,
@@ -273,6 +289,12 @@ export async function registerRoutes(app: Express): Promise<void> {
         scoring,
         estimation
       );
+      console.info("[api] sent_to_admin", {
+        requestId: (req as any).requestId,
+        type: "estimation",
+        sent_to_admin: telegramResult.ok,
+        reason: telegramResult.reason || null,
+      });
       
       return res.status(201).json({ 
         success: true, 
@@ -280,7 +302,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         id: lead.id,
       });
     } catch (error) {
-      console.error("Error processing estimation request:", error);
+      console.error("Error processing estimation request:", (req as any).requestId, error);
       return res.status(500).json({ 
         error: "Internal server error",
         message: "Не удалось отправить заявку" 
@@ -302,7 +324,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       const leads = await storage.getLeads(filters);
       return res.json(leads);
     } catch (error) {
-      console.error("Error fetching leads:", error);
+      console.error("Error fetching leads:", (req as any).requestId, error);
       return res.status(500).json({ error: "Internal server error" });
     }
   });
@@ -312,7 +334,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       const stats = await storage.getLeadStats();
       return res.json(stats);
     } catch (error) {
-      console.error("Error fetching lead stats:", error);
+      console.error("Error fetching lead stats:", (req as any).requestId, error);
       return res.status(500).json({ error: "Internal server error" });
     }
   });
@@ -325,7 +347,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       }
       return res.json(lead);
     } catch (error) {
-      console.error("Error fetching lead:", error);
+      console.error("Error fetching lead:", (req as any).requestId, error);
       return res.status(500).json({ error: "Internal server error" });
     }
   });
@@ -343,7 +365,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       }
       return res.json(lead);
     } catch (error) {
-      console.error("Error updating lead status:", error);
+      console.error("Error updating lead status:", (req as any).requestId, error);
       return res.status(500).json({ error: "Internal server error" });
     }
   });
@@ -353,7 +375,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       const projects = await storage.getProjects();
       return res.json(projects);
     } catch (error) {
-      console.error("Error fetching projects:", error);
+      console.error("Error fetching projects:", (req as any).requestId, error);
       return res.status(500).json({ error: "Internal server error" });
     }
   });
@@ -366,7 +388,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       }
       return res.json(project);
     } catch (error) {
-      console.error("Error fetching project:", error);
+      console.error("Error fetching project:", (req as any).requestId, error);
       return res.status(500).json({ error: "Internal server error" });
     }
   });
@@ -376,7 +398,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       const project = await storage.createProject(req.body);
       return res.status(201).json(project);
     } catch (error) {
-      console.error("Error creating project:", error);
+      console.error("Error creating project:", (req as any).requestId, error);
       return res.status(500).json({ error: "Internal server error" });
     }
   });
@@ -389,7 +411,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       }
       return res.json(project);
     } catch (error) {
-      console.error("Error updating project:", error);
+      console.error("Error updating project:", (req as any).requestId, error);
       return res.status(500).json({ error: "Internal server error" });
     }
   });
@@ -402,7 +424,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       }
       return res.json({ success: true });
     } catch (error) {
-      console.error("Error deleting project:", error);
+      console.error("Error deleting project:", (req as any).requestId, error);
       return res.status(500).json({ error: "Internal server error" });
     }
   });
@@ -420,12 +442,20 @@ export async function registerRoutes(app: Express): Promise<void> {
       
       if (login === adminLogin && password === adminPassword) {
         req.session.isAdmin = true;
+        console.info("[api] admin_login_success", {
+          requestId: (req as any).requestId,
+          login,
+        });
         return res.json({ success: true });
       }
       
+      console.warn("[api] admin_login_failed", {
+        requestId: (req as any).requestId,
+        login,
+      });
       return res.status(401).json({ error: "Неверный логин или пароль" });
     } catch (error) {
-      console.error("Error during login:", error);
+      console.error("Error during login:", (req as any).requestId, error);
       return res.status(500).json({ error: "Internal server error" });
     }
   });

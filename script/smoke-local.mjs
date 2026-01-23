@@ -56,6 +56,9 @@ async function main() {
     }
 
     const text = await res.text();
+    if (!res.ok) {
+      console.warn("request_failed", path, res.status, text);
+    }
     return { res, text };
   };
 
@@ -63,7 +66,7 @@ async function main() {
     login: process.env.ADMIN_LOGIN,
     password: process.env.ADMIN_PASSWORD,
   });
-  console.log("admin_login", loginResult.res.status);
+  console.log("admin_login", loginResult.res.status, loginResult.text);
 
   const sessionRes = await fetch(`${baseUrl}/api/admin/session`, {
     headers: cookie ? { Cookie: cookie } : {},
@@ -76,7 +79,7 @@ async function main() {
     email: "local-test@example.com",
     message: "Проверка контактной формы локально.",
   });
-  console.log("contact", contactResult.res.status);
+  console.log("contact", contactResult.res.status, contactResult.text);
 
   const estimateResult = await request("/api/estimate", {
     projectType: "website",
@@ -95,7 +98,7 @@ async function main() {
       maxDays: 21,
     },
   });
-  console.log("estimate", estimateResult.res.status);
+  console.log("estimate", estimateResult.res.status, estimateResult.text);
 
   await new Promise((resolve) => server.close(resolve));
 }
