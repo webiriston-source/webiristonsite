@@ -3,7 +3,9 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist/public",
   "functions": {
-    "api/index.ts": {}
+    "api/index.ts": {
+      "includeFiles": ["server-build/**"]
+    }
   },
   "rewrites": [
     {
