@@ -1,5 +1,4 @@
 import type { Express } from "express";
-import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
 import { contactFormSchema, estimationRequestSchema } from "../shared/schema.js";
 import { fromError } from "zod-validation-error";
@@ -48,6 +47,13 @@ const statusLabels: Record<string, string> = {
   in_progress: "В работе",
   closed: "Закрыта",
 };
+
+function requireAdmin(req: any, res: any, next: any) {
+  if (!req.session?.isAdmin) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  return next();
+}
 
 function formatPrice(price: number): string {
   return new Intl.NumberFormat("ru-RU").format(price) + " ₽";
@@ -154,10 +160,7 @@ Email: ${data.email}${data.telegram ? `\nTelegram: ${data.telegram}` : ""}
   }
 }
 
-export async function registerRoutes(
-  httpServer: Server,
-  app: Express
-): Promise<Server> {
+export async function registerRoutes(app: Express): Promise<void> {
   
   app.post("/api/contact", async (req, res) => {
     try {
@@ -285,7 +288,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/leads", async (req, res) => {
+  app.get("/api/leads", requireAdmin, async (req, res) => {
     try {
       const { type, status, scoring, startDate, endDate } = req.query;
       
@@ -304,7 +307,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/leads/stats", async (req, res) => {
+  app.get("/api/leads/stats", requireAdmin, async (req, res) => {
     try {
       const stats = await storage.getLeadStats();
       return res.json(stats);
@@ -314,7 +317,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/leads/:id", async (req, res) => {
+  app.get("/api/leads/:id", requireAdmin, async (req, res) => {
     try {
       const lead = await storage.getLead(req.params.id);
       if (!lead) {
@@ -327,7 +330,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/leads/:id/status", async (req, res) => {
+  app.patch("/api/leads/:id/status", requireAdmin, async (req, res) => {
     try {
       const { status } = req.body;
       if (!status || !["new", "in_progress", "closed"].includes(status)) {
@@ -345,7 +348,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/projects", async (req, res) => {
+  app.get("/api/projects", requireAdmin, async (req, res) => {
     try {
       const projects = await storage.getProjects();
       return res.json(projects);
@@ -355,7 +358,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/projects/:id", async (req, res) => {
+  app.get("/api/projects/:id", requireAdmin, async (req, res) => {
     try {
       const project = await storage.getProject(req.params.id);
       if (!project) {
@@ -368,7 +371,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/projects", async (req, res) => {
+  app.post("/api/projects", requireAdmin, async (req, res) => {
     try {
       const project = await storage.createProject(req.body);
       return res.status(201).json(project);
@@ -378,7 +381,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/projects/:id", async (req, res) => {
+  app.patch("/api/projects/:id", requireAdmin, async (req, res) => {
     try {
       const project = await storage.updateProject(req.params.id, req.body);
       if (!project) {
@@ -391,7 +394,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/projects/:id", async (req, res) => {
+  app.delete("/api/projects/:id", requireAdmin, async (req, res) => {
     try {
       const deleted = await storage.deleteProject(req.params.id);
       if (!deleted) {
@@ -441,5 +444,5 @@ export async function registerRoutes(
     return res.json({ isAdmin: req.session.isAdmin || false });
   });
 
-  return httpServer;
+  return;
 }

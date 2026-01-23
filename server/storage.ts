@@ -6,6 +6,7 @@ import {
 } from "../shared/schema.js";
 import { db } from "./db.js";
 import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
+import { randomUUID } from "crypto";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -59,7 +60,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createLead(insertLead: InsertLead): Promise<Lead> {
-    const [lead] = await db.insert(leads).values(insertLead).returning();
+    const [lead] = await db
+      .insert(leads)
+      .values({ id: randomUUID(), ...insertLead })
+      .returning();
     return lead;
   }
 
