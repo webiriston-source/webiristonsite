@@ -132,7 +132,7 @@ export function HeroSection() {
               data-cursor-hover
             >
               <a
-                href="https://t.me/alliniriston"
+                href="https://t.me/iristonweb"
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="Telegram"

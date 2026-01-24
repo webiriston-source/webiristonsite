@@ -118,7 +118,7 @@ export function CustomContextMenu() {
       label: "Telegram",
       icon: <SiTelegram className="w-4 h-4" />,
       action: () => {
-        window.open("https://t.me/alliniriston", "_blank");
+        window.open("https://t.me/iristonweb", "_blank");
         setIsOpen(false);
       },
     },

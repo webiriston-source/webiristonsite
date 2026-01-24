@@ -21,7 +21,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 const socialLinks = [
-  { icon: SiTelegram, href: "https://t.me/alliniriston", label: "Telegram" },
+  { icon: SiTelegram, href: "https://t.me/iristonweb", label: "Telegram" },
 ];
 
 function RobotIllustration({ focusedField }: { focusedField: string | null }) {

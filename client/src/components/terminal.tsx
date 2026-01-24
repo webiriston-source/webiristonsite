@@ -60,7 +60,7 @@ const COMMANDS: Record<string, { description: string; handler: () => string }> =
     handler: () => {
       return `Контактная информация:
 
-  Telegram: @alliniriston
+  Telegram: @iristonweb
 
 Или используйте форму обратной связи в секции "Контакты".`;
     },

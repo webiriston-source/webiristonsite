@@ -2,7 +2,7 @@
 
 ## Overview
 
-This is a modern, interactive digital studio platform for @alliniriston (IRSON). The platform combines a professional portfolio with a full lead management system, admin panel, project estimation calculator, and analytics dashboard. Built as a SPA with focus on performance and user experience, it serves as both a client-facing portfolio and a comprehensive business management tool.
+This is a modern, interactive digital studio platform for @iristonweb (iristonweb.ru). The platform combines a professional portfolio with a full lead management system, admin panel, project estimation calculator, and analytics dashboard. Built as a SPA with focus on performance and user experience, it serves as both a client-facing portfolio and a comprehensive business management tool.
 
 ## Recent Changes
 
