@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Switch, Route } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -10,41 +11,62 @@ import { Navigation } from "@/components/navigation";
 import { InteractiveTerminal } from "@/components/terminal";
 import { EasterEggs } from "@/components/easter-eggs";
 import { CustomContextMenu } from "@/components/custom-context-menu";
-import { AdminLayout } from "@/components/admin-layout";
 import Home from "@/pages/home";
-import NotFound from "@/pages/not-found";
-import AdminLogin from "@/pages/admin/login";
-import AdminDashboard from "@/pages/admin/dashboard";
-import AdminLeads from "@/pages/admin/leads";
-import AdminAnalytics from "@/pages/admin/analytics";
-import AdminProjects from "@/pages/admin/projects";
+
+const AdminLayout = lazy(() => import("@/components/admin-layout").then((m) => ({ default: m.AdminLayout })));
+const AdminLogin = lazy(() => import("@/pages/admin/login"));
+const AdminDashboard = lazy(() => import("@/pages/admin/dashboard"));
+const AdminLeads = lazy(() => import("@/pages/admin/leads"));
+const AdminAnalytics = lazy(() => import("@/pages/admin/analytics"));
+const AdminProjects = lazy(() => import("@/pages/admin/projects"));
+const NotFound = lazy(() => import("@/pages/not-found"));
+
+function RouteFallback() {
+  return null;
+}
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
-      <Route path="/admin/login" component={AdminLogin} />
+      <Route path="/admin/login">
+        <Suspense fallback={<RouteFallback />}>
+          <AdminLogin />
+        </Suspense>
+      </Route>
       <Route path="/admin">
-        <AdminLayout>
-          <AdminDashboard />
-        </AdminLayout>
+        <Suspense fallback={<RouteFallback />}>
+          <AdminLayout>
+            <AdminDashboard />
+          </AdminLayout>
+        </Suspense>
       </Route>
       <Route path="/admin/leads">
-        <AdminLayout>
-          <AdminLeads />
-        </AdminLayout>
+        <Suspense fallback={<RouteFallback />}>
+          <AdminLayout>
+            <AdminLeads />
+          </AdminLayout>
+        </Suspense>
       </Route>
       <Route path="/admin/analytics">
-        <AdminLayout>
-          <AdminAnalytics />
-        </AdminLayout>
+        <Suspense fallback={<RouteFallback />}>
+          <AdminLayout>
+            <AdminAnalytics />
+          </AdminLayout>
+        </Suspense>
       </Route>
       <Route path="/admin/projects">
-        <AdminLayout>
-          <AdminProjects />
-        </AdminLayout>
+        <Suspense fallback={<RouteFallback />}>
+          <AdminLayout>
+            <AdminProjects />
+          </AdminLayout>
+        </Suspense>
       </Route>
-      <Route component={NotFound} />
+      <Route>
+        <Suspense fallback={<RouteFallback />}>
+          <NotFound />
+        </Suspense>
+      </Route>
     </Switch>
   );
 }
