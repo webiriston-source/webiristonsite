@@ -10,8 +10,8 @@ import { databaseUrlSource, isDatabaseConfigured, pool } from "./db.ts";
 
 /**
  * Creates an Express app with all routes registered.
- * - Local dev uses server/index.ts to call app.listen(...)
- * - Vercel serverless uses api/index.ts and does NOT call listen
+ * - Local dev / self-hosted: server/index.ts calls app.listen(...)
+ * - Vercel: per-route serverless (api/admin/login, api/contact, etc.). No api/index.
  */
 export async function createApp() {
   const app = express();
