@@ -131,9 +131,7 @@ npm run db:push
 ```
 
 ## Что исправлено в этом архиве
-- Удалены Replit-артефакты из поставки (в исходном zip были `node_modules/` и `.local/`). Добавлен `.gitignore`.
-- Добавлены скрипты очистки: `script/cleanup-replit.sh` и `script/cleanup-replit.bat`.
-- Исправлены merge-конфликты в `vite.config.ts` и удалён лишний корневой `index.html` с конфликтом. Используется `client/index.html`.
+- Исправлены merge-конфликты. Используется `client/index.html`.
 - `vite.config.ts` и `server/vite.ts` переведены на корректный ESM-совместимый `__dirname` (через `fileURLToPath`).
 - `npm run dev` теперь без `NODE_ENV=...` (кроссплатформенно). `npm start` использует `cross-env` для Windows.
 - Добавлена автозагрузка `.env` через `dotenv` (чтобы `DATABASE_URL` подхватывался локально без ручного экспорта переменных).
