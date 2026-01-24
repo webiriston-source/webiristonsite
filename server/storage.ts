@@ -205,6 +205,20 @@ class MemoryStorage implements IStorage {
       createdAt: now,
       updatedAt: now,
       ...insertLead,
+      status: insertLead.status ?? "new",
+      scoring: insertLead.scoring ?? "C",
+      message: insertLead.message ?? null,
+      telegram: insertLead.telegram ?? null,
+      projectType: insertLead.projectType ?? null,
+      features: insertLead.features ?? null,
+      designComplexity: insertLead.designComplexity ?? null,
+      urgency: insertLead.urgency ?? null,
+      budget: insertLead.budget ?? null,
+      description: insertLead.description ?? null,
+      estimatedMinPrice: insertLead.estimatedMinPrice ?? null,
+      estimatedMaxPrice: insertLead.estimatedMaxPrice ?? null,
+      estimatedMinDays: insertLead.estimatedMinDays ?? null,
+      estimatedMaxDays: insertLead.estimatedMaxDays ?? null,
     };
     this.leads.unshift(lead);
     return lead;
@@ -293,6 +307,11 @@ class MemoryStorage implements IStorage {
       createdAt: now,
       updatedAt: now,
       ...insertProject,
+      liveUrl: insertProject.liveUrl ?? null,
+      problems: insertProject.problems ?? null,
+      solutions: insertProject.solutions ?? null,
+      sortOrder: insertProject.sortOrder ?? null,
+      isVisible: insertProject.isVisible ?? null,
     };
     this.projects.push(project);
     return project;
