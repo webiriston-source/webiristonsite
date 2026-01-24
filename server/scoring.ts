@@ -1,4 +1,4 @@
-import type { Scoring } from "../shared/schema.ts";
+import type { Scoring } from "../shared/schema";
 
 interface ScoringInput {
   type: "contact" | "estimation";

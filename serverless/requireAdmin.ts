@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { sendJson } from "./http.ts";
-import { getAdminSession } from "./auth.ts";
+import { sendJson } from "./http";
+import { getAdminSession } from "./auth";
 
 export function requireAdmin(req: VercelRequest, res: VercelResponse): boolean {
   const sessionSecret = process.env.SESSION_SECRET;

@@ -1,7 +1,15 @@
 import type { Project } from "@shared/schema";
 
+const base = {
+  isVisible: "true" as const,
+  createdAt: new Date("2024-01-01"),
+  updatedAt: new Date("2024-01-01"),
+  sortOrder: 0,
+};
+
 export const projects: Project[] = [
   {
+    ...base,
     id: "1",
     title: "E-Commerce Platform",
     description: "Современная платформа электронной коммерции с корзиной, оплатой и админ-панелью.",
@@ -13,6 +21,7 @@ export const projects: Project[] = [
     solutions: "Использование ISR для страниц каталога, оптимизация запросов к БД с Prisma, интеграция Stripe для безопасных платежей с webhooks.",
   },
   {
+    ...base,
     id: "2",
     title: "Task Management App",
     description: "Приложение для управления задачами в реальном времени с drag-and-drop интерфейсом.",
@@ -24,16 +33,19 @@ export const projects: Project[] = [
     solutions: "Использование dnd-kit для оптимизированного DnD, Socket.io для real-time обновлений и optimistic updates для мгновенного отклика UI.",
   },
   {
+    ...base,
     id: "3",
     title: "Analytics Dashboard",
     description: "Интерактивный дашборд с визуализацией данных и аналитикой в реальном времени.",
     fullDescription: "Аналитическая панель для отслеживания бизнес-метрик. Включает интерактивные графики, фильтры по периодам, экспорт отчетов и настраиваемые виджеты. Данные обновляются в реальном времени без перезагрузки страницы.",
     image: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&h=600&fit=crop",
     technologies: ["React", "TypeScript", "D3.js", "Recharts", "TanStack Query", "Express"],
+    liveUrl: null,
     problems: "Визуализация больших объемов данных без потери производительности и поддержка различных типов графиков.",
     solutions: "Виртуализация данных, ленивая загрузка графиков, использование Web Workers для вычислений и кэширование с TanStack Query.",
   },
   {
+    ...base,
     id: "4",
     title: "AI Chat Assistant",
     description: "Чат-бот с искусственным интеллектом для автоматизации клиентской поддержки.",
@@ -45,22 +57,26 @@ export const projects: Project[] = [
     solutions: "RAG архитектура с векторной БД Pinecone, streaming responses для быстрого отклика и кэширование частых запросов.",
   },
   {
+    ...base,
     id: "5",
     title: "Social Media App",
     description: "Социальная сеть с лентой новостей, сторис и мессенджером.",
     fullDescription: "Мобильно-ориентированная социальная платформа с бесконечной лентой постов, системой лайков и комментариев, stories с автоудалением, приватными сообщениями и push-уведомлениями.",
     image: "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=800&h=600&fit=crop",
     technologies: ["React Native", "Expo", "Firebase", "Node.js", "GraphQL", "AWS S3"],
+    liveUrl: null,
     problems: "Оптимизация производительности ленты с большим количеством медиа-контента и реализация real-time чата.",
     solutions: "Виртуализация списков с FlashList, lazy loading изображений, Firebase Realtime Database для чата и CDN для медиа.",
   },
   {
+    ...base,
     id: "6",
     title: "DevOps Monitoring Tool",
     description: "Система мониторинга инфраструктуры с алертами и метриками.",
     fullDescription: "Комплексное решение для мониторинга серверов и приложений. Сбор метрик, визуализация логов, настраиваемые алерты через различные каналы (Slack, Email, SMS) и автоматическое масштабирование.",
     image: "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?w=800&h=600&fit=crop",
     technologies: ["Go", "Prometheus", "Grafana", "Docker", "Kubernetes", "PostgreSQL"],
+    liveUrl: null,
     problems: "Обработка и хранение больших объемов метрик с минимальной задержкой.",
     solutions: "Time-series база Prometheus, агрегация данных, retention policies и горизонтальное масштабирование сборщиков.",
   },

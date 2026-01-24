@@ -1,4 +1,4 @@
-import { getScoringEmoji } from "../server/scoring.ts";
+import { getScoringEmoji } from "../server/scoring";
 
 type EstimationResult = {
   minPrice: number;

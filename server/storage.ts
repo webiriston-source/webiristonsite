@@ -3,8 +3,8 @@ import {
   type Lead, type InsertLead,
   type Project, type InsertProject,
   users, leads, projects
-} from "../shared/schema.ts";
-import { db, isDatabaseConfigured } from "./db.ts";
+} from "../shared/schema";
+import { db, isDatabaseConfigured } from "./db";
 import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 

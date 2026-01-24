@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { readJsonBody, sendJson, methodNotAllowed } from "../../serverless/http.ts";
-import { createAdminSessionToken, setAdminSessionCookie } from "../../serverless/auth.ts";
+import { readJsonBody, sendJson, methodNotAllowed } from "../../serverless/http";
+import { createAdminSessionToken, setAdminSessionCookie } from "../../serverless/auth";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {

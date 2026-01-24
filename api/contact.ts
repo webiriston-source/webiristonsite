@@ -1,9 +1,9 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { contactFormSchema } from "../shared/schema.ts";
-import { calculateScoring } from "../server/scoring.ts";
-import { storage } from "../server/storage.ts";
-import { readJsonBody, sendJson, methodNotAllowed } from "../serverless/http.ts";
-import { sendContactToTelegram } from "../serverless/telegram.ts";
+import { contactFormSchema } from "../shared/schema";
+import { calculateScoring } from "../server/scoring";
+import { storage } from "../server/storage";
+import { readJsonBody, sendJson, methodNotAllowed } from "../serverless/http";
+import { sendContactToTelegram } from "../serverless/telegram";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {

@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { sendJson, methodNotAllowed } from "../../serverless/http.ts";
-import { getAdminSession } from "../../serverless/auth.ts";
+import { sendJson, methodNotAllowed } from "../../serverless/http";
+import { getAdminSession } from "../../serverless/auth";
 
 export default function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") {

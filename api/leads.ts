@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { storage } from "../server/storage.ts";
-import { methodNotAllowed, sendJson } from "../serverless/http.ts";
-import { requireAdmin } from "../serverless/requireAdmin.ts";
+import { storage } from "../server/storage";
+import { methodNotAllowed, sendJson } from "../serverless/http";
+import { requireAdmin } from "../serverless/requireAdmin";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") {

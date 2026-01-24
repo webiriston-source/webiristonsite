@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { parseCookies, serializeCookie } from "./cookies.ts";
+import { parseCookies, serializeCookie } from "./cookies";
 
 const COOKIE_NAME = "admin_session";
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -48,7 +48,9 @@ export function verifyAdminSessionToken(secret: string, token?: string): Session
   const [encoded, signature] = token.split(".");
   if (!encoded || !signature) return null;
   const expected = sign(secret, encoded);
-  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+  const sigBuf = Buffer.from(signature);
+  const expBuf = Buffer.from(expected);
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
     return null;
   }
 

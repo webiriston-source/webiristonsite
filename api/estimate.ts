@@ -1,9 +1,9 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { estimationRequestSchema } from "../shared/schema.ts";
-import { calculateScoring } from "../server/scoring.ts";
-import { storage } from "../server/storage.ts";
-import { readJsonBody, sendJson, methodNotAllowed } from "../serverless/http.ts";
-import { sendEstimateToTelegram } from "../serverless/telegram.ts";
+import { estimationRequestSchema } from "../shared/schema";
+import { calculateScoring } from "../server/scoring";
+import { storage } from "../server/storage";
+import { readJsonBody, sendJson, methodNotAllowed } from "../serverless/http";
+import { sendEstimateToTelegram } from "../serverless/telegram";
 
 type EstimationPayload = {
   minPrice: number;
