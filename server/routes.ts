@@ -4,6 +4,23 @@ import { contactFormSchema, estimationRequestSchema } from "../shared/schema.ts"
 import { fromError } from "zod-validation-error";
 import { calculateScoring, getScoringEmoji } from "./scoring.ts";
 
+// #region agent log
+function dbg(msg: string, data: Record<string, unknown>, hyp: string) {
+  fetch("http://127.0.0.1:7242/ingest/b4f43000-b66f-41cc-aaa0-8a16f634d849", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      location: "routes.ts",
+      message: msg,
+      data,
+      timestamp: Date.now(),
+      sessionId: "debug-session",
+      hypothesisId: hyp,
+    }),
+  }).catch(() => {});
+}
+// #endregion
+
 interface EstimationResult {
   minPrice: number;
   maxPrice: number;
@@ -84,6 +101,10 @@ async function sendToTelegram(
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
 
+  // #region agent log
+  dbg("sendToTelegram start", { type, hasToken: !!botToken, hasChatId: !!chatId }, "H5");
+  // #endregion
+
   if (!botToken || !chatId) {
     console.warn("Telegram credentials not configured.");
     return { ok: false, reason: "missing_credentials" };
@@ -160,12 +181,21 @@ Email: ${data.email}${data.telegram ? `\nTelegram: ${data.telegram}` : ""}
         errorData = await response.text().catch(() => null);
       }
       console.error("Telegram API error:", errorData);
+      // #region agent log
+      dbg("sendToTelegram API error", { type, status: response.status, reason: `telegram_error_${response.status}` }, "H5");
+      // #endregion
       return { ok: false, reason: `telegram_error_${response.status}` };
     }
 
+    // #region agent log
+    dbg("sendToTelegram ok", { type, ok: true }, "H5");
+    // #endregion
     return { ok: true };
   } catch (error) {
     console.error("Failed to send message to Telegram:", error);
+    // #region agent log
+    dbg("sendToTelegram exception", { type, err: String(error) }, "H5");
+    // #endregion
     return { ok: false, reason: "telegram_exception" };
   }
 }
@@ -173,19 +203,26 @@ Email: ${data.email}${data.telegram ? `\nTelegram: ${data.telegram}` : ""}
 export async function registerRoutes(app: Express): Promise<void> {
   
   app.post("/api/contact", async (req, res) => {
+    // #region agent log
+    dbg("contact entry", { bodyKeys: Object.keys(req.body || {}), hasBody: !!req.body }, "H2");
+    // #endregion
     try {
       const parseResult = contactFormSchema.safeParse(req.body);
-      
+
+      // #region agent log
+      dbg("contact parse", { success: parseResult.success, hasData: !!parseResult.data }, "H4");
+      // #endregion
+
       if (!parseResult.success) {
         const validationError = fromError(parseResult.error);
-        return res.status(400).json({ 
-          error: "Validation error", 
-          message: validationError.message 
+        return res.status(400).json({
+          error: "Validation error",
+          message: validationError.message
         });
       }
 
       const { name, email, message } = parseResult.data;
-      
+
       const scoring = calculateScoring({
         type: "contact",
         message,
@@ -200,43 +237,62 @@ export async function registerRoutes(app: Express): Promise<void> {
         message,
       });
 
+      // #region agent log
+      dbg("contact createLead ok", { leadId: lead.id }, "H4");
+      // #endregion
+
       const telegramResult = await sendToTelegram("contact", { name, email, message }, scoring);
+
+      // #region agent log
+      dbg("contact after sendToTelegram", { ok: telegramResult.ok, reason: telegramResult.reason ?? null }, "H5");
+      // #endregion
+
       console.info("[api] sent_to_admin", {
         requestId: (req as any).requestId,
         type: "contact",
         sent_to_admin: telegramResult.ok,
         reason: telegramResult.reason || null,
       });
-      
-      return res.status(201).json({ 
-        success: true, 
+
+      return res.status(201).json({
+        success: true,
         message: "Сообщение успешно отправлено",
         id: lead.id,
       });
     } catch (error) {
+      // #region agent log
+      dbg("contact catch", { err: String(error) }, "H2");
+      // #endregion
       console.error("Error creating contact message:", (req as any).requestId, error);
-      return res.status(500).json({ 
+      return res.status(500).json({
         error: "Internal server error",
-        message: "Не удалось отправить сообщение" 
+        message: "Не удалось отправить сообщение"
       });
     }
   });
 
   app.post("/api/estimate", async (req, res) => {
+    // #region agent log
+    dbg("estimate entry", { bodyKeys: Object.keys(req.body || {}), hasBody: !!req.body, hasEstimation: !!(req.body as any)?.estimation }, "H2");
+    // #endregion
     try {
       const { estimation, ...requestData } = req.body;
-      
+
       const parseResult = estimationRequestSchema.safeParse(requestData);
-      
+
+      // #region agent log
+      dbg("estimate parse", { success: parseResult.success, hasData: !!parseResult.data }, "H4");
+      // #endregion
+
       if (!parseResult.success) {
         const validationError = fromError(parseResult.error);
-        return res.status(400).json({ 
-          error: "Validation error", 
-          message: validationError.message 
+        return res.status(400).json({
+          error: "Validation error",
+          message: validationError.message
         });
       }
 
-      if (!estimation || typeof estimation.minPrice !== 'number' || typeof estimation.maxPrice !== 'number') {
+      if (!estimation || typeof estimation.minPrice !== "number" || typeof estimation.maxPrice !== "number") {
         return res.status(400).json({
           error: "Validation error",
           message: "Estimation data is required"
@@ -244,7 +300,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       }
 
       const data = parseResult.data;
-      
+
       const scoring = calculateScoring({
         type: "estimation",
         budget: data.budget,
@@ -273,6 +329,10 @@ export async function registerRoutes(app: Express): Promise<void> {
         estimatedMaxDays: estimation.maxDays,
       });
 
+      // #region agent log
+      dbg("estimate createLead ok", { leadId: lead.id }, "H4");
+      // #endregion
+
       const telegramResult = await sendToTelegram(
         "estimation",
         {
@@ -289,23 +349,31 @@ export async function registerRoutes(app: Express): Promise<void> {
         scoring,
         estimation
       );
+
+      // #region agent log
+      dbg("estimate after sendToTelegram", { ok: telegramResult.ok, reason: telegramResult.reason ?? null }, "H5");
+      // #endregion
+
       console.info("[api] sent_to_admin", {
         requestId: (req as any).requestId,
         type: "estimation",
         sent_to_admin: telegramResult.ok,
         reason: telegramResult.reason || null,
       });
-      
-      return res.status(201).json({ 
-        success: true, 
+
+      return res.status(201).json({
+        success: true,
         message: "Заявка успешно отправлена",
         id: lead.id,
       });
     } catch (error) {
+      // #region agent log
+      dbg("estimate catch", { err: String(error) }, "H2");
+      // #endregion
       console.error("Error processing estimation request:", (req as any).requestId, error);
-      return res.status(500).json({ 
+      return res.status(500).json({
         error: "Internal server error",
-        message: "Не удалось отправить заявку" 
+        message: "Не удалось отправить заявку"
       });
     }
   });
@@ -430,31 +498,53 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   app.post("/api/admin/login", async (req, res) => {
+    // #region agent log
+    const adminLogin = process.env.ADMIN_LOGIN;
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    dbg("login entry", {
+      bodyKeys: Object.keys(req.body || {}),
+      hasBody: !!req.body,
+      hasLogin: !!(req.body as any)?.login,
+      hasPassword: !!(req.body as any)?.password,
+      hasAdminLogin: !!adminLogin,
+      hasAdminPassword: !!adminPassword,
+    }, "H2");
+    // #endregion
     try {
       const { login, password } = req.body;
-      const adminLogin = process.env.ADMIN_LOGIN;
-      const adminPassword = process.env.ADMIN_PASSWORD;
-      
+
       if (!adminLogin || !adminPassword) {
         console.error("ADMIN_LOGIN or ADMIN_PASSWORD environment variable is not set");
+        // #region agent log
+        dbg("login missing env", {}, "H2");
+        // #endregion
         return res.status(500).json({ error: "Сервер не настроен для авторизации" });
       }
-      
+
       if (login === adminLogin && password === adminPassword) {
         req.session.isAdmin = true;
+        // #region agent log
+        dbg("login success", { login }, "H3");
+        // #endregion
         console.info("[api] admin_login_success", {
           requestId: (req as any).requestId,
           login,
         });
         return res.json({ success: true });
       }
-      
+
+      // #region agent log
+      dbg("login failed 401", { login }, "H2");
+      // #endregion
       console.warn("[api] admin_login_failed", {
         requestId: (req as any).requestId,
         login,
       });
       return res.status(401).json({ error: "Неверный логин или пароль" });
     } catch (error) {
+      // #region agent log
+      dbg("login catch", { err: String(error) }, "H2");
+      // #endregion
       console.error("Error during login:", (req as any).requestId, error);
       return res.status(500).json({ error: "Internal server error" });
     }
@@ -471,7 +561,11 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   app.get("/api/admin/session", async (req, res) => {
-    return res.json({ isAdmin: req.session.isAdmin || false });
+    const isAdmin = !!req.session?.isAdmin;
+    // #region agent log
+    dbg("session handler", { isAdmin, hasSession: !!req.session }, "H3");
+    // #endregion
+    return res.json({ isAdmin });
   });
 
   return;

@@ -12,14 +12,50 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  const res = await fetch(url, {
-    method,
-    headers: data ? { "Content-Type": "application/json" } : {},
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-  });
+  // #region agent log
+  const ingest = (msg: string, d: Record<string, unknown>, hyp: string) =>
+    fetch("http://127.0.0.1:7242/ingest/b4f43000-b66f-41cc-aaa0-8a16f634d849", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        location: "queryClient.ts:apiRequest",
+        message: msg,
+        data: d,
+        timestamp: Date.now(),
+        sessionId: "debug-session",
+        hypothesisId: hyp,
+      }),
+    }).catch(() => {});
+  ingest("apiRequest before fetch", { method, url, hasBody: !!data }, "H1");
+  // #endregion
 
-  await throwIfResNotOk(res);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      headers: data ? { "Content-Type": "application/json" } : {},
+      body: data ? JSON.stringify(data) : undefined,
+      credentials: "include",
+    });
+  } catch (e) {
+    // #region agent log
+    ingest("apiRequest fetch failed", { error: String(e) }, "H1");
+    // #endregion
+    throw e;
+  }
+
+  // #region agent log
+  ingest("apiRequest after fetch", { status: res.status, ok: res.ok, url }, "H2");
+  // #endregion
+
+  try {
+    await throwIfResNotOk(res);
+  } catch (e) {
+    // #region agent log
+    ingest("apiRequest throwIfResNotOk", { status: res.status, err: (e as Error).message }, "H2");
+    // #endregion
+    throw e;
+  }
   return res;
 }
 
@@ -29,9 +65,30 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey.join("/") as string, {
-      credentials: "include",
-    });
+    const url = queryKey.join("/") as string;
+    // #region agent log
+    const ingest = (msg: string, d: Record<string, unknown>, hyp: string) =>
+      fetch("http://127.0.0.1:7242/ingest/b4f43000-b66f-41cc-aaa0-8a16f634d849", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          location: "queryClient.ts:getQueryFn",
+          message: msg,
+          data: d,
+          timestamp: Date.now(),
+          sessionId: "debug-session",
+          hypothesisId: hyp,
+        }),
+      }).catch(() => {});
+    ingest("getQueryFn before fetch", { url }, "H1");
+    // #endregion
+
+    const res = await fetch(url, { credentials: "include" });
+
+    // #region agent log
+    ingest("getQueryFn after fetch", { url, status: res.status, ok: res.ok }, "H2");
+    if (url.includes("session")) ingest("getQueryFn session response", { status: res.status }, "H3");
+    // #endregion
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;

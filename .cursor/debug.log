@@ -1,0 +1,52 @@
+{"location":"queryClient.ts:apiRequest","message":"apiRequest before fetch","data":{"method":"POST","url":"/api/contact","hasBody":true},"timestamp":1769250604405,"sessionId":"debug-session","hypothesisId":"H1"}
+{"location":"queryClient.ts:apiRequest","message":"apiRequest after fetch","data":{"status":201,"ok":true,"url":"/api/contact"},"timestamp":1769250604820,"sessionId":"debug-session","hypothesisId":"H2"}
+{"location":"routes.ts","message":"contact entry","data":{"bodyKeys":["name","email","message"],"hasBody":true},"timestamp":1769250604770,"sessionId":"debug-session","hypothesisId":"H2"}
+{"location":"routes.ts","message":"contact parse","data":{"success":true,"hasData":true},"timestamp":1769250604803,"sessionId":"debug-session","hypothesisId":"H4"}
+{"location":"routes.ts","message":"contact createLead ok","data":{"leadId":"af9e16dc-e6bc-4151-bfbb-f65806327388"},"timestamp":1769250604807,"sessionId":"debug-session","hypothesisId":"H4"}
+{"location":"routes.ts","message":"sendToTelegram start","data":{"type":"contact","hasToken":false,"hasChatId":false},"timestamp":1769250604808,"sessionId":"debug-session","hypothesisId":"H5"}
+{"location":"routes.ts","message":"contact after sendToTelegram","data":{"ok":false,"reason":"missing_credentials"},"timestamp":1769250604809,"sessionId":"debug-session","hypothesisId":"H5"}
+{"location":"queryClient.ts:apiRequest","message":"apiRequest before fetch","data":{"method":"POST","url":"/api/estimate","hasBody":true},"timestamp":1769250627299,"sessionId":"debug-session","hypothesisId":"H1"}
+{"location":"queryClient.ts:apiRequest","message":"apiRequest after fetch","data":{"status":201,"ok":true,"url":"/api/estimate"},"timestamp":1769250627312,"sessionId":"debug-session","hypothesisId":"H2"}
+{"location":"routes.ts","message":"estimate entry","data":{"bodyKeys":["projectType","features","designComplexity","urgency","budget","contactName","contactEmail","contactTelegram","description","estimation"],"hasBody":true,"hasEstimation":true},"timestamp":1769250627300,"sessionId":"debug-session","hypothesisId":"H2"}
+{"location":"routes.ts","message":"estimate parse","data":{"success":true,"hasData":true},"timestamp":1769250627302,"sessionId":"debug-session","hypothesisId":"H4"}
+{"location":"routes.ts","message":"estimate createLead ok","data":{"leadId":"76c6c3aa-5690-45f2-8e1e-4719e78f6d7d"},"timestamp":1769250627303,"sessionId":"debug-session","hypothesisId":"H4"}
+{"location":"routes.ts","message":"sendToTelegram start","data":{"type":"estimation","hasToken":false,"hasChatId":false},"timestamp":1769250627304,"sessionId":"debug-session","hypothesisId":"H5"}
+{"location":"routes.ts","message":"estimate after sendToTelegram","data":{"ok":false,"reason":"missing_credentials"},"timestamp":1769250627306,"sessionId":"debug-session","hypothesisId":"H5"}
+{"location":"queryClient.ts:apiRequest","message":"apiRequest before fetch","data":{"method":"POST","url":"/api/admin/login","hasBody":true},"timestamp":1769250639262,"sessionId":"debug-session","hypothesisId":"H1"}
+{"location":"queryClient.ts:apiRequest","message":"apiRequest after fetch","data":{"status":500,"ok":false,"url":"/api/admin/login"},"timestamp":1769250639270,"sessionId":"debug-session","hypothesisId":"H2"}
+{"location":"queryClient.ts:apiRequest","message":"apiRequest throwIfResNotOk","data":{"status":500,"err":"500: {\"error\":\"Сервер не настроен для авторизации\"}"},"timestamp":1769250639271,"sessionId":"debug-session","hypothesisId":"H2"}
+{"location":"routes.ts","message":"login entry","data":{"bodyKeys":["login","password"],"hasBody":true,"hasLogin":true,"hasPassword":true,"hasAdminLogin":false,"hasAdminPassword":false},"timestamp":1769250639266,"sessionId":"debug-session","hypothesisId":"H2"}
+{"location":"routes.ts","message":"login missing env","data":{},"timestamp":1769250639268,"sessionId":"debug-session","hypothesisId":"H2"}
+{"location":"queryClient.ts:apiRequest","message":"apiRequest before fetch","data":{"method":"POST","url":"/api/admin/login","hasBody":true},"timestamp":1769250650869,"sessionId":"debug-session","hypothesisId":"H1"}
+{"location":"routes.ts","message":"login entry","data":{"bodyKeys":["login","password"],"hasBody":true,"hasLogin":true,"hasPassword":true,"hasAdminLogin":false,"hasAdminPassword":false},"timestamp":1769250650873,"sessionId":"debug-session","hypothesisId":"H2"}
+{"location":"routes.ts","message":"login missing env","data":{},"timestamp":1769250650873,"sessionId":"debug-session","hypothesisId":"H2"}
+{"location":"queryClient.ts:apiRequest","message":"apiRequest after fetch","data":{"status":500,"ok":false,"url":"/api/admin/login"},"timestamp":1769250650875,"sessionId":"debug-session","hypothesisId":"H2"}
+{"location":"queryClient.ts:apiRequest","message":"apiRequest throwIfResNotOk","data":{"status":500,"err":"500: {\"error\":\"Сервер не настроен для авторизации\"}"},"timestamp":1769250650876,"sessionId":"debug-session","hypothesisId":"H2"}
+{"location":"queryClient.ts:apiRequest","message":"apiRequest before fetch","data":{"method":"POST","url":"/api/admin/login","hasBody":true},"timestamp":1769250960312,"sessionId":"debug-session","hypothesisId":"H1"}
+{"location":"queryClient.ts:apiRequest","message":"apiRequest after fetch","data":{"status":200,"ok":true,"url":"/api/admin/login"},"timestamp":1769250960351,"sessionId":"debug-session","hypothesisId":"H2"}
+{"location":"routes.ts","message":"login entry","data":{"bodyKeys":["login","password"],"hasBody":true,"hasLogin":true,"hasPassword":true,"hasAdminLogin":true,"hasAdminPassword":true},"timestamp":1769250960329,"sessionId":"debug-session","hypothesisId":"H2"}
+{"location":"routes.ts","message":"login success","data":{"login":"webiriston"},"timestamp":1769250960340,"sessionId":"debug-session","hypothesisId":"H3"}
+{"location":"queryClient.ts:getQueryFn","message":"getQueryFn before fetch","data":{"url":"/api/admin/session"},"timestamp":1769250960734,"sessionId":"debug-session","hypothesisId":"H1"}
+{"location":"routes.ts","message":"session handler","data":{"isAdmin":true,"hasSession":true},"timestamp":1769250960921,"sessionId":"debug-session","hypothesisId":"H3"}
+{"location":"queryClient.ts:getQueryFn","message":"getQueryFn after fetch","data":{"url":"/api/admin/session","status":200,"ok":true},"timestamp":1769250960927,"sessionId":"debug-session","hypothesisId":"H2"}
+{"location":"queryClient.ts:getQueryFn","message":"getQueryFn session response","data":{"status":200},"timestamp":1769250960928,"sessionId":"debug-session","hypothesisId":"H3"}
+{"location":"queryClient.ts:getQueryFn","message":"getQueryFn before fetch","data":{"url":"/api/leads/stats"},"timestamp":1769250961246,"sessionId":"debug-session","hypothesisId":"H1"}
+{"location":"queryClient.ts:getQueryFn","message":"getQueryFn before fetch","data":{"url":"/api/leads"},"timestamp":1769250961247,"sessionId":"debug-session","hypothesisId":"H1"}
+{"location":"queryClient.ts:getQueryFn","message":"getQueryFn after fetch","data":{"url":"/api/leads/stats","status":200,"ok":true},"timestamp":1769250961882,"sessionId":"debug-session","hypothesisId":"H2"}
+{"location":"queryClient.ts:getQueryFn","message":"getQueryFn after fetch","data":{"url":"/api/leads","status":200,"ok":true},"timestamp":1769250962044,"sessionId":"debug-session","hypothesisId":"H2"}
+{"location":"queryClient.ts:apiRequest","message":"apiRequest before fetch","data":{"method":"POST","url":"/api/estimate","hasBody":true},"timestamp":1769251010949,"sessionId":"debug-session","hypothesisId":"H1"}
+{"location":"routes.ts","message":"estimate entry","data":{"bodyKeys":["projectType","features","designComplexity","urgency","budget","contactName","contactEmail","contactTelegram","description","estimation"],"hasBody":true,"hasEstimation":true},"timestamp":1769251011415,"sessionId":"debug-session","hypothesisId":"H2"}
+{"location":"routes.ts","message":"estimate parse","data":{"success":true,"hasData":true},"timestamp":1769251011419,"sessionId":"debug-session","hypothesisId":"H4"}
+{"location":"routes.ts","message":"estimate createLead ok","data":{"leadId":"99d5591f-0ed6-4c85-86b0-92990e2b6a74"},"timestamp":1769251011589,"sessionId":"debug-session","hypothesisId":"H4"}
+{"location":"routes.ts","message":"sendToTelegram start","data":{"type":"estimation","hasToken":true,"hasChatId":true},"timestamp":1769251011589,"sessionId":"debug-session","hypothesisId":"H5"}
+{"location":"queryClient.ts:apiRequest","message":"apiRequest after fetch","data":{"status":201,"ok":true,"url":"/api/estimate"},"timestamp":1769251015272,"sessionId":"debug-session","hypothesisId":"H2"}
+{"location":"routes.ts","message":"sendToTelegram API error","data":{"type":"estimation","status":400,"reason":"telegram_error_400"},"timestamp":1769251015265,"sessionId":"debug-session","hypothesisId":"H5"}
+{"location":"routes.ts","message":"estimate after sendToTelegram","data":{"ok":false,"reason":"telegram_error_400"},"timestamp":1769251015267,"sessionId":"debug-session","hypothesisId":"H5"}
+{"location":"queryClient.ts:apiRequest","message":"apiRequest before fetch","data":{"method":"POST","url":"/api/contact","hasBody":true},"timestamp":1769251029303,"sessionId":"debug-session","hypothesisId":"H1"}
+{"location":"routes.ts","message":"contact entry","data":{"bodyKeys":["name","email","message"],"hasBody":true},"timestamp":1769251029467,"sessionId":"debug-session","hypothesisId":"H2"}
+{"location":"routes.ts","message":"contact parse","data":{"success":true,"hasData":true},"timestamp":1769251029467,"sessionId":"debug-session","hypothesisId":"H4"}
+{"location":"routes.ts","message":"contact createLead ok","data":{"leadId":"75ea87e2-fdc4-4fd5-93fb-1b74579bf9c3"},"timestamp":1769251029628,"sessionId":"debug-session","hypothesisId":"H4"}
+{"location":"routes.ts","message":"sendToTelegram start","data":{"type":"contact","hasToken":true,"hasChatId":true},"timestamp":1769251029629,"sessionId":"debug-session","hypothesisId":"H5"}
+{"location":"routes.ts","message":"sendToTelegram API error","data":{"type":"contact","status":400,"reason":"telegram_error_400"},"timestamp":1769251030152,"sessionId":"debug-session","hypothesisId":"H5"}
+{"location":"routes.ts","message":"contact after sendToTelegram","data":{"ok":false,"reason":"telegram_error_400"},"timestamp":1769251030153,"sessionId":"debug-session","hypothesisId":"H5"}
+{"location":"queryClient.ts:apiRequest","message":"apiRequest after fetch","data":{"status":201,"ok":true,"url":"/api/contact"},"timestamp":1769251030158,"sessionId":"debug-session","hypothesisId":"H2"}
