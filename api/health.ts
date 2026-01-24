@@ -1,5 +1,4 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { sendJson, methodNotAllowed } from "../serverless/http";
 
 const DB_KEYS = [
   "DATABASE_URL_UNPOOLED",
@@ -11,7 +10,9 @@ const DB_KEYS = [
 
 export default function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") {
-    return methodNotAllowed(res, ["GET"]);
+    res.status(405).setHeader("Allow", "GET");
+    res.end();
+    return;
   }
 
   const env = {
@@ -21,9 +22,6 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
     db: DB_KEYS.some((k) => Boolean(process.env[k])),
   };
 
-  return sendJson(res, 200, {
-    ok: true,
-    env,
-    vercel: Boolean(process.env.VERCEL),
-  });
+  res.status(200).setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify({ ok: true, env, vercel: Boolean(process.env.VERCEL) }));
 }

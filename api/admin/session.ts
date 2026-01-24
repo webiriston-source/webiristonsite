@@ -1,6 +1,4 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { sendJson, methodNotAllowed } from "../../serverless/http";
-import { getAdminSession } from "../../serverless/auth";
 
 const DB_KEYS = [
   "DATABASE_URL_UNPOOLED",
@@ -19,21 +17,31 @@ function envHealth() {
   };
 }
 
-export default function handler(req: VercelRequest, res: VercelResponse) {
+function replyJson(res: VercelResponse, status: number, payload: unknown) {
+  res.status(status).setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify(payload));
+}
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") {
-    return methodNotAllowed(res, ["GET"]);
+    res.status(405).setHeader("Allow", "GET");
+    res.end();
+    return;
   }
 
   const wantHealth = req.query?.health === "1" || req.query?.health === "true";
   if (wantHealth) {
-    return sendJson(res, 200, { ok: true, env: envHealth(), vercel: Boolean(process.env.VERCEL) });
+    replyJson(res, 200, { ok: true, env: envHealth(), vercel: Boolean(process.env.VERCEL) });
+    return;
   }
 
   const sessionSecret = process.env.SESSION_SECRET;
   if (!sessionSecret) {
-    return sendJson(res, 200, { isAdmin: false });
+    replyJson(res, 200, { isAdmin: false });
+    return;
   }
 
+  const { getAdminSession } = await import("../../serverless/auth");
   const session = getAdminSession(req, sessionSecret);
-  return sendJson(res, 200, { isAdmin: Boolean(session?.isAdmin) });
+  replyJson(res, 200, { isAdmin: Boolean(session?.isAdmin) });
 }
