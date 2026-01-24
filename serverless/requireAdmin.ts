@@ -1,0 +1,19 @@
+import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { sendJson } from "./http.ts";
+import { getAdminSession } from "./auth.ts";
+
+export function requireAdmin(req: VercelRequest, res: VercelResponse): boolean {
+  const sessionSecret = process.env.SESSION_SECRET;
+  if (!sessionSecret) {
+    sendJson(res, 401, { error: "Unauthorized" });
+    return false;
+  }
+
+  const session = getAdminSession(req, sessionSecret);
+  if (!session?.isAdmin) {
+    sendJson(res, 401, { error: "Unauthorized" });
+    return false;
+  }
+
+  return true;
+}
