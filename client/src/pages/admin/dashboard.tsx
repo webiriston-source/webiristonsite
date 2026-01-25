@@ -1,26 +1,64 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Users, TrendingUp, Flame, Snowflake, Clock } from "lucide-react";
+import { Users, TrendingUp, Flame, Snowflake, Clock, Mail, FileText } from "lucide-react";
 import type { Lead } from "@shared/schema";
-
-interface LeadStats {
-  total: number;
-  byType: Record<string, number>;
-  byStatus: Record<string, number>;
-  byScoring: Record<string, number>;
-  thisMonth: number;
-  lastMonth: number;
-}
+import { apiRequest } from "@/lib/queryClient";
 
 export default function AdminDashboard() {
-  const { data: stats, isLoading: statsLoading } = useQuery<LeadStats>({
-    queryKey: ["/api/leads/stats"],
+  // Fetch contacts
+  const { data: contacts, isLoading: contactsLoading } = useQuery<Lead[]>({
+    queryKey: ["/api/?action=getContacts"],
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/?action=getContacts");
+      return response.json();
+    },
   });
 
-  const { data: recentLeads, isLoading: leadsLoading } = useQuery<Lead[]>({
-    queryKey: ["/api/leads"],
+  // Fetch estimates
+  const { data: estimates, isLoading: estimatesLoading } = useQuery<Lead[]>({
+    queryKey: ["/api/?action=getEstimates"],
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/?action=getEstimates");
+      return response.json();
+    },
   });
+
+  // Calculate stats from fetched data
+  const allLeads = [...(contacts || []), ...(estimates || [])];
+  const stats = {
+    total: allLeads.length,
+    byType: {
+      contact: contacts?.length || 0,
+      estimation: estimates?.length || 0,
+    },
+    byStatus: allLeads.reduce((acc, lead) => {
+      acc[lead.status] = (acc[lead.status] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>),
+    byScoring: allLeads.reduce((acc, lead) => {
+      acc[lead.scoring] = (acc[lead.scoring] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>),
+    thisMonth: allLeads.filter((lead) => {
+      const leadDate = new Date(lead.createdAt);
+      const now = new Date();
+      return leadDate.getMonth() === now.getMonth() && leadDate.getFullYear() === now.getFullYear();
+    }).length,
+    lastMonth: allLeads.filter((lead) => {
+      const leadDate = new Date(lead.createdAt);
+      const now = new Date();
+      const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+      return leadDate >= lastMonth && leadDate <= lastMonthEnd;
+    }).length,
+  };
+
+  const statsLoading = contactsLoading || estimatesLoading;
+  const recentLeads = allLeads.sort((a, b) => 
+    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+  const leadsLoading = contactsLoading || estimatesLoading;
 
   const growth = stats
     ? stats.lastMonth > 0
@@ -208,9 +246,142 @@ export default function AdminDashboard() {
         </Card>
       </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Mail className="h-5 w-5" />
+              Контакты ({contacts?.length || 0})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {contactsLoading ? (
+              <div className="space-y-2">
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-12 w-full" />
+                ))}
+              </div>
+            ) : contacts && contacts.length > 0 ? (
+              <div className="space-y-2">
+                {contacts.slice(0, 5).map((contact) => (
+                  <div
+                    key={contact.id}
+                    className="flex items-center justify-between p-3 rounded-md bg-muted/50"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center justify-center w-8 h-8">
+                        {contact.scoring === "A" && <Flame className="h-5 w-5 text-orange-500" />}
+                        {contact.scoring === "B" && <span className="text-yellow-500 text-lg">●</span>}
+                        {contact.scoring === "C" && <Snowflake className="h-5 w-5 text-blue-400" />}
+                      </div>
+                      <div>
+                        <p className="font-medium">{contact.name}</p>
+                        <p className="text-sm text-muted-foreground">{contact.email}</p>
+                        {contact.message && (
+                          <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
+                            {contact.message}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span
+                        className={`text-xs px-2 py-1 rounded-full ${
+                          contact.status === "new"
+                            ? "bg-blue-500/10 text-blue-500"
+                            : contact.status === "in_progress"
+                            ? "bg-yellow-500/10 text-yellow-500"
+                            : "bg-green-500/10 text-green-500"
+                        }`}
+                      >
+                        {contact.status === "new" ? "Новая" : contact.status === "in_progress" ? "В работе" : "Закрыта"}
+                      </span>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {new Date(contact.createdAt).toLocaleDateString("ru-RU")}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-center py-8">
+                Контактов пока нет
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              Оценки проектов ({estimates?.length || 0})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {estimatesLoading ? (
+              <div className="space-y-2">
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-12 w-full" />
+                ))}
+              </div>
+            ) : estimates && estimates.length > 0 ? (
+              <div className="space-y-2">
+                {estimates.slice(0, 5).map((estimate) => (
+                  <div
+                    key={estimate.id}
+                    className="flex items-center justify-between p-3 rounded-md bg-muted/50"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center justify-center w-8 h-8">
+                        {estimate.scoring === "A" && <Flame className="h-5 w-5 text-orange-500" />}
+                        {estimate.scoring === "B" && <span className="text-yellow-500 text-lg">●</span>}
+                        {estimate.scoring === "C" && <Snowflake className="h-5 w-5 text-blue-400" />}
+                      </div>
+                      <div>
+                        <p className="font-medium">{estimate.name}</p>
+                        <p className="text-sm text-muted-foreground">{estimate.email}</p>
+                        {estimate.projectType && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {estimate.projectType}
+                            {estimate.estimatedMinPrice && estimate.estimatedMaxPrice && (
+                              <> • {estimate.estimatedMinPrice.toLocaleString("ru-RU")}—{estimate.estimatedMaxPrice.toLocaleString("ru-RU")} ₽</>
+                            )}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span
+                        className={`text-xs px-2 py-1 rounded-full ${
+                          estimate.status === "new"
+                            ? "bg-blue-500/10 text-blue-500"
+                            : estimate.status === "in_progress"
+                            ? "bg-yellow-500/10 text-yellow-500"
+                            : "bg-green-500/10 text-green-500"
+                        }`}
+                      >
+                        {estimate.status === "new" ? "Новая" : estimate.status === "in_progress" ? "В работе" : "Закрыта"}
+                      </span>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {new Date(estimate.createdAt).toLocaleDateString("ru-RU")}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-center py-8">
+                Оценок пока нет
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
       <Card>
         <CardHeader>
-          <CardTitle>Последние заявки</CardTitle>
+          <CardTitle>Все последние заявки</CardTitle>
         </CardHeader>
         <CardContent>
           {leadsLoading ? (
@@ -221,7 +392,7 @@ export default function AdminDashboard() {
             </div>
           ) : recentLeads && recentLeads.length > 0 ? (
             <div className="space-y-2">
-              {recentLeads.slice(0, 5).map((lead) => (
+              {recentLeads.slice(0, 10).map((lead) => (
                 <div
                   key={lead.id}
                   className="flex items-center justify-between p-3 rounded-md bg-muted/50"

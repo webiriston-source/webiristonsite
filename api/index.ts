@@ -7,7 +7,7 @@ import {
   estimationRequestSchema,
   type InsertLead,
 } from "../shared/schema.js";
-import { eq } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import { randomUUID } from "crypto";
 
@@ -43,7 +43,7 @@ function sendJson(res: VercelResponse, status: number, data: unknown) {
  */
 function setCorsHeaders(res: VercelResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 }
 
@@ -290,6 +290,52 @@ async function handleLogin(
 }
 
 /**
+ * Handle get contacts (GET request)
+ */
+async function handleGetContacts(
+  db: ReturnType<typeof import("drizzle-orm").drizzle>
+): Promise<{ success: true; data: unknown[] } | { error: string; message: string }> {
+  try {
+    const contacts = await db
+      .select()
+      .from(leads)
+      .where(eq(leads.type, "contact"))
+      .orderBy(desc(leads.createdAt));
+
+    return { success: true, data: contacts };
+  } catch (error) {
+    console.error("Failed to fetch contacts:", error);
+    return {
+      error: "Database error",
+      message: "Не удалось получить список контактов",
+    };
+  }
+}
+
+/**
+ * Handle get estimates (GET request)
+ */
+async function handleGetEstimates(
+  db: ReturnType<typeof import("drizzle-orm").drizzle>
+): Promise<{ success: true; data: unknown[] } | { error: string; message: string }> {
+  try {
+    const estimates = await db
+      .select()
+      .from(leads)
+      .where(eq(leads.type, "estimation"))
+      .orderBy(desc(leads.createdAt));
+
+    return { success: true, data: estimates };
+  } catch (error) {
+    console.error("Failed to fetch estimates:", error);
+    return {
+      error: "Database error",
+      message: "Не удалось получить список оценок",
+    };
+  }
+}
+
+/**
  * Main handler
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -300,10 +346,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  // Only allow POST
-  if (req.method !== "POST") {
+  // Allow both GET and POST
+  if (req.method !== "POST" && req.method !== "GET") {
     setCorsHeaders(res);
-    res.status(405).setHeader("Allow", "POST").end();
+    res.status(405).setHeader("Allow", "GET, POST").end();
     return;
   }
 
@@ -330,11 +376,41 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!action || typeof action !== "string") {
     return sendJson(res, 400, {
       error: "Missing action",
-      message: "Query parameter 'action' is required. Valid actions: contact, estimate, login",
+      message: "Query parameter 'action' is required. Valid actions: contact, estimate, login, getContacts, getEstimates",
     });
   }
 
   try {
+    // Handle GET requests (getContacts, getEstimates)
+    if (req.method === "GET") {
+      let result: { success: true; data: unknown[] } | { error: string; message: string };
+
+      switch (action) {
+        case "getContacts": {
+          result = await withDb(async (db) => handleGetContacts(db));
+          break;
+        }
+        case "getEstimates": {
+          result = await withDb(async (db) => handleGetEstimates(db));
+          break;
+        }
+        default: {
+          return sendJson(res, 400, {
+            error: "Invalid action",
+            message: `Unknown GET action: ${action}. Valid GET actions: getContacts, getEstimates`,
+          });
+        }
+      }
+
+      if ("success" in result && result.success) {
+        return sendJson(res, 200, result.data);
+      } else {
+        const status = result.error === "Validation error" ? 400 : 500;
+        return sendJson(res, status, result);
+      }
+    }
+
+    // Handle POST requests (contact, estimate, login)
     const body = await parseJsonBody(req);
 
     // Route to appropriate handler using on-demand DB connection
@@ -356,7 +432,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       default: {
         return sendJson(res, 400, {
           error: "Invalid action",
-          message: `Unknown action: ${action}. Valid actions: contact, estimate, login`,
+          message: `Unknown POST action: ${action}. Valid POST actions: contact, estimate, login`,
         });
       }
     }
