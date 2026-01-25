@@ -89,6 +89,9 @@ curl -s "https://iristonweb.ru/api/admin/session?health=1"
 
 Если ошибка `api/index` / `server/routes` исчезла — используется новый деплой. Если нет — домен всё ещё указывает на старый; повторите шаги 1–2. Если **все** `/api/*` дают 404 — проверьте Root Directory и редеплой с очисткой кэша.
 
+**Сайт грузится на webiristonsite.vercel.app, но не на iristonweb.ru (ERR_CONNECTION_RESET)?**  
+Проблема в **кастомном домене** или **DNS**. См. **ИНСТРУКЦИЯ_VERCEL.md** → раздел «Сайт грузится на webiristonsite.vercel.app, но не на iristonweb.ru»: проверьте Domains в Vercel, CNAME/A-записи у регистратора, и при использовании Cloudflare/прокси — SSL и отключение proxy или жёстких правил.
+
 ---
 
 ## 6. Локальная проверка деплоя (опционально)
