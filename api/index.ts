@@ -3,13 +3,16 @@ import { withDb } from "../shared/db.js";
 import {
   users,
   leads,
+  projects,
   contactFormSchema,
   estimationRequestSchema,
   type InsertLead,
+  type InsertProject,
 } from "../shared/schema.js";
 import { eq, desc } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import { randomUUID } from "crypto";
+import { put } from "@vercel/blob";
 import { sendContactToTelegram, sendEstimateToTelegram } from "../serverless/telegram.js";
 
 /**
@@ -44,7 +47,7 @@ function sendJson(res: VercelResponse, status: number, data: unknown) {
  */
 function setCorsHeaders(res: VercelResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 }
 
@@ -391,6 +394,28 @@ async function handleGetRequests(
 }
 
 /**
+ * Handle get projects (GET request)
+ */
+async function handleGetProjects(
+  db: ReturnType<typeof import("drizzle-orm").drizzle>
+): Promise<{ success: true; data: unknown[] } | { error: string; message: string }> {
+  try {
+    const allProjects = await db
+      .select()
+      .from(projects)
+      .orderBy(desc(projects.createdAt));
+
+    return { success: true, data: allProjects };
+  } catch (error) {
+    console.error("Failed to fetch projects:", error);
+    return {
+      error: "Database error",
+      message: "Не удалось получить список проектов",
+    };
+  }
+}
+
+/**
  * Handle get analytics (GET request)
  */
 async function handleGetAnalytics(
@@ -504,6 +529,259 @@ async function handleUpdateLeadStatus(
 }
 
 /**
+ * Handle get unread count (GET request)
+ */
+async function handleGetUnreadCount(
+  db: ReturnType<typeof import("drizzle-orm").drizzle>
+): Promise<{ success: true; count: number } | { error: string; message: string }> {
+  try {
+    const unreadLeads = await db
+      .select()
+      .from(leads)
+      .where(eq(leads.status, "new"));
+
+    return { success: true, count: unreadLeads.length };
+  } catch (error) {
+    console.error("Failed to fetch unread count:", error);
+    return {
+      error: "Database error",
+      message: "Не удалось получить количество непрочитанных заявок",
+    };
+  }
+}
+
+/**
+ * Handle mark as read (PATCH request)
+ */
+async function handleMarkAsRead(
+  body: unknown,
+  db: ReturnType<typeof import("drizzle-orm").drizzle>
+): Promise<{ success: true } | { error: string; message: string }> {
+  const parsedBody = body as { id?: string };
+
+  if (!parsedBody?.id) {
+    return {
+      error: "Validation error",
+      message: "id is required",
+    };
+  }
+
+  try {
+    // Mark as in_progress if it's new
+    await db
+      .update(leads)
+      .set({ status: "in_progress", updatedAt: new Date() })
+      .where(eq(leads.id, parsedBody.id));
+
+    return { success: true };
+  } catch (error) {
+    console.error("Failed to mark as read:", error);
+    return {
+      error: "Database error",
+      message: "Не удалось отметить заявку как прочитанную",
+    };
+  }
+}
+
+/**
+ * Handle add project (POST request)
+ */
+async function handleAddProject(
+  body: unknown,
+  db: ReturnType<typeof import("drizzle-orm").drizzle>
+): Promise<{ success: true; id: string } | { error: string; message: string }> {
+  const parsedBody = body as {
+    title?: string;
+    description?: string;
+    fullDescription?: string;
+    image?: string;
+    technologies?: string[];
+    liveUrl?: string;
+    problems?: string;
+    solutions?: string;
+  };
+
+  if (!parsedBody?.title || !parsedBody?.description || !parsedBody?.fullDescription || !parsedBody?.image) {
+    return {
+      error: "Validation error",
+      message: "title, description, fullDescription, and image are required",
+    };
+  }
+
+  try {
+    const project = await db
+      .insert(projects)
+      .values({
+        id: randomUUID(),
+        title: parsedBody.title,
+        description: parsedBody.description,
+        fullDescription: parsedBody.fullDescription,
+        image: parsedBody.image,
+        technologies: parsedBody.technologies || [],
+        liveUrl: parsedBody.liveUrl || null,
+        problems: parsedBody.problems || null,
+        solutions: parsedBody.solutions || null,
+        sortOrder: 0,
+        isVisible: "true",
+      })
+      .returning();
+
+    return { success: true, id: project[0].id };
+  } catch (error) {
+    console.error("Failed to add project:", error);
+    return {
+      error: "Database error",
+      message: "Не удалось добавить проект",
+    };
+  }
+}
+
+/**
+ * Handle update project (PATCH request)
+ */
+async function handleUpdateProject(
+  body: unknown,
+  db: ReturnType<typeof import("drizzle-orm").drizzle>
+): Promise<{ success: true } | { error: string; message: string }> {
+  const parsedBody = body as {
+    id?: string;
+    title?: string;
+    description?: string;
+    fullDescription?: string;
+    image?: string;
+    technologies?: string[];
+    liveUrl?: string;
+    problems?: string;
+    solutions?: string;
+  };
+
+  if (!parsedBody?.id) {
+    return {
+      error: "Validation error",
+      message: "id is required",
+    };
+  }
+
+  try {
+    const updateData: Partial<InsertProject> = {};
+    if (parsedBody.title) updateData.title = parsedBody.title;
+    if (parsedBody.description) updateData.description = parsedBody.description;
+    if (parsedBody.fullDescription) updateData.fullDescription = parsedBody.fullDescription;
+    if (parsedBody.image) updateData.image = parsedBody.image;
+    if (parsedBody.technologies) updateData.technologies = parsedBody.technologies;
+    if (parsedBody.liveUrl !== undefined) updateData.liveUrl = parsedBody.liveUrl || null;
+    if (parsedBody.problems !== undefined) updateData.problems = parsedBody.problems || null;
+    if (parsedBody.solutions !== undefined) updateData.solutions = parsedBody.solutions || null;
+
+    await db
+      .update(projects)
+      .set({ ...updateData, updatedAt: new Date() })
+      .where(eq(projects.id, parsedBody.id));
+
+    return { success: true };
+  } catch (error) {
+    console.error("Failed to update project:", error);
+    return {
+      error: "Database error",
+      message: "Не удалось обновить проект",
+    };
+  }
+}
+
+/**
+ * Handle delete project (DELETE request via PATCH)
+ */
+async function handleDeleteProject(
+  body: unknown,
+  db: ReturnType<typeof import("drizzle-orm").drizzle>
+): Promise<{ success: true } | { error: string; message: string }> {
+  const parsedBody = body as { id?: string };
+
+  if (!parsedBody?.id) {
+    return {
+      error: "Validation error",
+      message: "id is required",
+    };
+  }
+
+  try {
+    await db
+      .delete(projects)
+      .where(eq(projects.id, parsedBody.id));
+
+    return { success: true };
+  } catch (error) {
+    console.error("Failed to delete project:", error);
+    return {
+      error: "Database error",
+      message: "Не удалось удалить проект",
+    };
+  }
+}
+
+/**
+ * Handle upload image (POST request with base64 or URL)
+ * For Vercel, we'll accept base64 encoded image data
+ */
+async function handleUploadImage(
+  body: unknown
+): Promise<{ success: true; url: string } | { error: string; message: string }> {
+  try {
+    const parsedBody = body as { file?: string; filename?: string; contentType?: string };
+
+    if (!parsedBody?.file) {
+      return {
+        error: "Validation error",
+        message: "File data is required (base64 encoded)",
+      };
+    }
+
+    // Decode base64
+    let fileBuffer: Buffer;
+    let contentType = parsedBody.contentType || "image/jpeg";
+    
+    try {
+      // Remove data URL prefix if present
+      const base64Data = parsedBody.file.includes(",") 
+        ? parsedBody.file.split(",")[1] 
+        : parsedBody.file;
+      fileBuffer = Buffer.from(base64Data, "base64");
+    } catch {
+      return {
+        error: "Validation error",
+        message: "Invalid base64 file data",
+      };
+    }
+
+    // Validate file size (max 5MB)
+    if (fileBuffer.length > 5 * 1024 * 1024) {
+      return {
+        error: "Validation error",
+        message: "File size must be less than 5MB",
+      };
+    }
+
+    // Generate unique filename
+    const extension = parsedBody.filename?.split(".").pop() || "jpg";
+    const filename = `projects/${randomUUID()}.${extension}`;
+
+    // Upload to Vercel Blob
+    const blob = await put(filename, fileBuffer, {
+      access: "public",
+      contentType,
+    });
+
+    return { success: true, url: blob.url };
+  } catch (error) {
+    console.error("Failed to upload image:", error);
+    return {
+      error: "Upload error",
+      message: "Не удалось загрузить изображение",
+    };
+  }
+}
+
+/**
  * Main handler
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -514,10 +792,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  // Allow GET, POST, and PATCH
-  if (req.method !== "POST" && req.method !== "GET" && req.method !== "PATCH") {
+  // Allow GET, POST, PATCH, and DELETE
+  if (req.method !== "POST" && req.method !== "GET" && req.method !== "PATCH" && req.method !== "DELETE") {
     setCorsHeaders(res);
-    res.status(405).setHeader("Allow", "GET, POST, PATCH").end();
+    res.status(405).setHeader("Allow", "GET, POST, PATCH, DELETE").end();
     return;
   }
 
@@ -544,7 +822,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!action || typeof action !== "string") {
     return sendJson(res, 400, {
       error: "Missing action",
-      message: "Query parameter 'action' is required. Valid actions: contact, estimate, login, getContacts, getEstimates, getRequests, getAnalytics, updateLeadStatus",
+      message: "Query parameter 'action' is required. Valid actions: contact, estimate, login, getContacts, getEstimates, getRequests, getAnalytics, getUnreadCount, getProjects, updateLeadStatus, markAsRead, addProject, uploadImage",
     });
   }
 
@@ -570,10 +848,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           result = await withDb(async (db) => handleGetAnalytics(db));
           break;
         }
+        case "getUnreadCount": {
+          const countResult = await withDb(async (db) => handleGetUnreadCount(db));
+          if ("success" in countResult && countResult.success) {
+            return sendJson(res, 200, { count: countResult.count });
+          } else {
+            return sendJson(res, 500, countResult);
+          }
+        }
+        case "getProjects": {
+          result = await withDb(async (db) => handleGetProjects(db));
+          break;
+        }
         default: {
           return sendJson(res, 400, {
             error: "Invalid action",
-            message: `Unknown GET action: ${action}. Valid GET actions: getContacts, getEstimates, getRequests, getAnalytics`,
+            message: `Unknown GET action: ${action}. Valid GET actions: getContacts, getEstimates, getRequests, getAnalytics, getUnreadCount, getProjects`,
           });
         }
       }
@@ -586,20 +876,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // Handle PATCH requests (updateLeadStatus)
-    if (req.method === "PATCH") {
+    // Handle DELETE requests (deleteProject)
+    if (req.method === "DELETE") {
       const body = await parseJsonBody(req);
       let result: { success: true } | { error: string; message: string };
 
       switch (action) {
-        case "updateLeadStatus": {
-          result = await withDb(async (db) => handleUpdateLeadStatus(body, db));
+        case "deleteProject": {
+          result = await withDb(async (db) => handleDeleteProject(body, db));
           break;
         }
         default: {
           return sendJson(res, 400, {
             error: "Invalid action",
-            message: `Unknown PATCH action: ${action}. Valid PATCH actions: updateLeadStatus`,
+            message: `Unknown DELETE action: ${action}. Valid DELETE actions: deleteProject`,
           });
         }
       }
@@ -612,7 +902,41 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // Handle POST requests (contact, estimate, login)
+    // Handle PATCH requests (updateLeadStatus, markAsRead, updateProject)
+    if (req.method === "PATCH") {
+      const body = await parseJsonBody(req);
+      let result: { success: true } | { error: string; message: string };
+
+      switch (action) {
+        case "updateLeadStatus": {
+          result = await withDb(async (db) => handleUpdateLeadStatus(body, db));
+          break;
+        }
+        case "markAsRead": {
+          result = await withDb(async (db) => handleMarkAsRead(body, db));
+          break;
+        }
+        case "updateProject": {
+          result = await withDb(async (db) => handleUpdateProject(body, db));
+          break;
+        }
+        default: {
+          return sendJson(res, 400, {
+            error: "Invalid action",
+            message: `Unknown PATCH action: ${action}. Valid PATCH actions: updateLeadStatus, markAsRead, updateProject`,
+          });
+        }
+      }
+
+      if ("success" in result && result.success) {
+        return sendJson(res, 200, { success: true });
+      } else {
+        const status = result.error === "Validation error" ? 400 : 500;
+        return sendJson(res, status, result);
+      }
+    }
+
+    // Handle POST requests (contact, estimate, login, addProject, uploadImage)
     const body = await parseJsonBody(req);
 
     // Route to appropriate handler using on-demand DB connection
@@ -631,10 +955,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         result = await withDb(async (db) => handleLogin(body, db));
         break;
       }
+      case "addProject": {
+        result = await withDb(async (db) => handleAddProject(body, db));
+        break;
+      }
+      case "uploadImage": {
+        const uploadResult = await handleUploadImage(body);
+        if ("success" in uploadResult && uploadResult.success) {
+          return sendJson(res, 200, uploadResult);
+        } else {
+          return sendJson(res, 400, uploadResult);
+        }
+      }
       default: {
         return sendJson(res, 400, {
           error: "Invalid action",
-          message: `Unknown POST action: ${action}. Valid POST actions: contact, estimate, login`,
+          message: `Unknown POST action: ${action}. Valid POST actions: contact, estimate, login, addProject, uploadImage`,
         });
       }
     }
@@ -645,6 +981,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return sendJson(res, 201, {
           success: true,
           message: action === "contact" ? "Сообщение успешно отправлено" : "Заявка успешно отправлена",
+          id: result.id,
+        });
+      } else if (action === "addProject") {
+        return sendJson(res, 201, {
+          success: true,
+          message: "Проект успешно добавлен",
           id: result.id,
         });
       } else {

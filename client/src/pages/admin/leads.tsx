@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -87,6 +87,20 @@ export default function AdminLeads() {
     const matchesScoring = scoringFilter === "all" || lead.scoring === scoringFilter;
     return matchesSearch && matchesType && matchesStatus && matchesScoring;
   });
+
+  // Mark as read when dialog opens
+  useEffect(() => {
+    if (selectedLead && selectedLead.status === "new") {
+      apiRequest("PATCH", "/api/?action=markAsRead", { id: selectedLead.id })
+        .then(() => {
+          queryClient.invalidateQueries({ queryKey: ["/api/?action=getRequests"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/?action=getUnreadCount"] });
+        })
+        .catch(() => {
+          // Silent fail
+        });
+    }
+  }, [selectedLead]);
 
   const ScoringIcon = ({ scoring }: { scoring: string }) => {
     switch (scoring) {
@@ -244,7 +258,10 @@ export default function AdminLeads() {
         </CardContent>
       </Card>
 
-      <Dialog open={!!selectedLead} onOpenChange={() => setSelectedLead(null)}>
+      <Dialog 
+        open={!!selectedLead} 
+        onOpenChange={() => setSelectedLead(null)}
+      >
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">

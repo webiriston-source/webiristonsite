@@ -29,20 +29,62 @@ export default function AdminProjects() {
     problems: "",
     solutions: "",
   });
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const { data: projects, isLoading } = useQuery<Project[]>({
-    queryKey: ["/api/projects"],
+    queryKey: ["/api/?action=getProjects"],
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/?action=getProjects");
+      return response.json();
+    },
+  });
+
+  const uploadImageMutation = useMutation({
+    mutationFn: async (file: File) => {
+      // Convert file to base64
+      return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64 = reader.result as string;
+          // Send to API
+          fetch(`${import.meta.env.VITE_API_BASE || window.location.origin}/api/?action=uploadImage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              file: base64,
+              filename: file.name,
+              contentType: file.type,
+            }),
+          })
+            .then((res) => res.json())
+            .then((data) => {
+              if (data.success && data.url) {
+                resolve(data.url);
+              } else {
+                reject(new Error(data.message || "Upload failed"));
+              }
+            })
+            .catch(reject);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    },
   });
 
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
-      const response = await apiRequest("POST", "/api/projects", data);
+      const response = await apiRequest("POST", "/api/?action=addProject", data);
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/?action=getProjects"] });
       toast({ title: "Проект создан" });
       closeDialog();
+      setImageFile(null);
+      setImagePreview(null);
     },
     onError: () => {
       toast({ title: "Ошибка", description: "Не удалось создать проект", variant: "destructive" });
@@ -51,13 +93,15 @@ export default function AdminProjects() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: any }) => {
-      const response = await apiRequest("PATCH", `/api/projects/${id}`, data);
+      const response = await apiRequest("PATCH", `/api/?action=updateProject`, { id, ...data });
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/?action=getProjects"] });
       toast({ title: "Проект обновлён" });
       closeDialog();
+      setImageFile(null);
+      setImagePreview(null);
     },
     onError: () => {
       toast({ title: "Ошибка", description: "Не удалось обновить проект", variant: "destructive" });
@@ -66,11 +110,11 @@ export default function AdminProjects() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const response = await apiRequest("DELETE", `/api/projects/${id}`);
+      const response = await apiRequest("DELETE", `/api/?action=deleteProject`, { id });
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/?action=getProjects"] });
       toast({ title: "Проект удалён" });
       setDeleteConfirmId(null);
     },
@@ -91,6 +135,8 @@ export default function AdminProjects() {
       problems: "",
       solutions: "",
     });
+    setImageFile(null);
+    setImagePreview(null);
     setIsDialogOpen(true);
   };
 
@@ -114,10 +160,44 @@ export default function AdminProjects() {
     setEditingProject(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setImageFile(file);
+      // Create preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    let imageUrl = formData.image;
+    
+    // Upload image if file is selected
+    if (imageFile && !editingProject) {
+      setUploadingImage(true);
+      try {
+        imageUrl = await uploadImageMutation.mutateAsync(imageFile);
+        setUploadingImage(false);
+      } catch (error) {
+        setUploadingImage(false);
+        toast({ 
+          title: "Ошибка", 
+          description: "Не удалось загрузить изображение", 
+          variant: "destructive" 
+        });
+        return;
+      }
+    }
+
     const data = {
       ...formData,
+      image: imageUrl,
       technologies: formData.technologies.split(",").map((t) => t.trim()).filter(Boolean),
     };
 
@@ -276,15 +356,42 @@ export default function AdminProjects() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="image">URL изображения</Label>
-              <Input
-                id="image"
-                value={formData.image}
-                onChange={(e) => setFormData({ ...formData, image: e.target.value })}
-                placeholder="https://example.com/image.jpg"
-                required
-                data-testid="input-project-image"
-              />
+              <Label htmlFor="image">
+                {editingProject ? "URL изображения" : "Изображение"}
+              </Label>
+              {!editingProject ? (
+                <>
+                  <Input
+                    id="image"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageChange}
+                    className="cursor-pointer"
+                    data-testid="input-project-image-file"
+                  />
+                  {imagePreview && (
+                    <div className="mt-2">
+                      <img
+                        src={imagePreview}
+                        alt="Preview"
+                        className="w-full h-48 object-cover rounded-md border"
+                      />
+                    </div>
+                  )}
+                  {uploadingImage && (
+                    <p className="text-sm text-muted-foreground">Загрузка изображения...</p>
+                  )}
+                </>
+              ) : (
+                <Input
+                  id="image"
+                  value={formData.image}
+                  onChange={(e) => setFormData({ ...formData, image: e.target.value })}
+                  placeholder="https://example.com/image.jpg"
+                  required
+                  data-testid="input-project-image"
+                />
+              )}
             </div>
 
             <div className="space-y-2">
@@ -337,10 +444,12 @@ export default function AdminProjects() {
               </Button>
               <Button
                 type="submit"
-                disabled={createMutation.isPending || updateMutation.isPending}
+                disabled={createMutation.isPending || updateMutation.isPending || uploadingImage}
                 data-testid="button-save-project"
               >
-                {createMutation.isPending || updateMutation.isPending
+                {uploadingImage
+                  ? "Загрузка изображения..."
+                  : createMutation.isPending || updateMutation.isPending
                   ? "Сохранение..."
                   : editingProject
                   ? "Сохранить"

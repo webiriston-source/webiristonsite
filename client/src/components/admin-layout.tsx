@@ -11,6 +11,7 @@ import {
   X
 } from "lucide-react";
 import { isAuthenticated, removeAuthToken } from "@/lib/auth";
+import { AdminNotifications } from "@/components/admin-notifications";
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -104,6 +105,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         <nav className="p-4 space-y-1">
           {navItems.map((item) => {
             const isActive = location === item.href;
+            const isLeads = item.href === "/admin/leads";
             return (
               <Button
                 key={item.href}
@@ -115,7 +117,14 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                 }}
                 data-testid={`nav-${item.href.split("/").pop()}`}
               >
-                <item.icon className="h-4 w-4" />
+                <div className="relative">
+                  <item.icon className="h-4 w-4" />
+                  {isLeads && (
+                    <span className="absolute -top-1 -right-1">
+                      <AdminNotifications />
+                    </span>
+                  )}
+                </div>
                 {item.label}
               </Button>
             );
