@@ -928,6 +928,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 
+  // Log request method and action for debugging
+  console.log(`[API] ${req.method} request for action: ${action}`);
+
   try {
     // Handle GET requests (getContacts, getEstimates)
     if (req.method === "GET") {
