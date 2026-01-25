@@ -1,38 +1,72 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { contactFormSchema, leads, type InsertLead } from "../shared/schema.js";
-import { calculateScoring } from "../server/scoring.js";
 import { withDb } from "../shared/db.js";
-import { readJsonBody, sendJson, methodNotAllowed } from "../serverless/http.js";
-import { sendContactToTelegram } from "../serverless/telegram.js";
 import { randomUUID } from "crypto";
-import { eq } from "drizzle-orm";
 
 /**
- * CORS headers helper
+ * Parse JSON body from request
  */
-function setCorsHeaders(res: VercelResponse) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+async function parseJsonBody<T>(req: VercelRequest): Promise<T | null> {
+  try {
+    if (req.body) {
+      return typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+    }
+
+    let raw = "";
+    for await (const chunk of req as AsyncIterable<Buffer | string>) {
+      raw += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+    }
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Send JSON response
+ */
+function sendJson(res: VercelResponse, status: number, data: unknown) {
+  res.status(status).setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify(data));
+}
+
+/**
+ * Simple scoring calculation for contact messages
+ */
+function calculateScoring(message: string): "A" | "B" | "C" {
+  const length = message.length;
+  if (length > 200) return "B";
+  if (length > 50) return "B";
+  return "C";
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
-    setCorsHeaders(res);
-    res.status(200).end();
+    res.status(200)
+      .setHeader("Access-Control-Allow-Origin", "*")
+      .setHeader("Access-Control-Allow-Methods", "POST, OPTIONS")
+      .setHeader("Access-Control-Allow-Headers", "Content-Type")
+      .end();
     return;
   }
 
+  // Only allow POST
   if (req.method !== "POST") {
-    setCorsHeaders(res);
-    return methodNotAllowed(res, ["POST"]);
+    res.status(405)
+      .setHeader("Allow", "POST")
+      .setHeader("Access-Control-Allow-Origin", "*")
+      .end();
+    return;
   }
 
-  setCorsHeaders(res);
+  // Set CORS headers
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   try {
-    const body = await readJsonBody(req);
+    const body = await parseJsonBody(req);
     const parseResult = contactFormSchema.safeParse(body);
 
     if (!parseResult.success) {
@@ -43,11 +77,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const { name, email, message } = parseResult.data;
-    const scoring = calculateScoring({ type: "contact", message });
+    const scoring = calculateScoring(message);
 
+    // Save to database using on-demand connection
     let leadId: string | null = null;
     try {
-      // Use on-demand database connection
       const lead = await withDb(async (db) => {
         const insertData: InsertLead = {
           type: "contact",
@@ -69,28 +103,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       leadId = lead.id;
     } catch (error) {
       console.error("Failed to store contact lead:", error);
-      // Continue even if DB fails - Telegram notification is more important
+      // Continue even if DB fails
     }
-
-    // Send to Telegram
-    const telegramResult = await sendContactToTelegram({
-      name,
-      email,
-      message,
-      scoring,
-    });
-
-    console.info("[api] sent_to_admin", {
-      type: "contact",
-      sent_to_admin: telegramResult.ok,
-      reason: telegramResult.reason || null,
-    });
 
     return sendJson(res, 201, {
       success: true,
       message: "Сообщение успешно отправлено",
       id: leadId,
-      sentToAdmin: telegramResult.ok,
     });
   } catch (error) {
     console.error("Error creating contact message:", error);

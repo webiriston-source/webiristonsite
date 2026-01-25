@@ -1,9 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { estimationRequestSchema, leads, type InsertLead } from "../shared/schema.js";
-import { calculateScoring } from "../server/scoring.js";
 import { withDb } from "../shared/db.js";
-import { readJsonBody, sendJson, methodNotAllowed } from "../serverless/http.js";
-import { sendEstimateToTelegram } from "../serverless/telegram.js";
 import { randomUUID } from "crypto";
 
 type EstimationPayload = {
@@ -14,33 +11,115 @@ type EstimationPayload = {
 };
 
 /**
- * CORS headers helper
+ * Parse JSON body from request
  */
-function setCorsHeaders(res: VercelResponse) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+async function parseJsonBody<T>(req: VercelRequest): Promise<T | null> {
+  try {
+    if (req.body) {
+      return typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+    }
+
+    let raw = "";
+    for await (const chunk of req as AsyncIterable<Buffer | string>) {
+      raw += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+    }
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Send JSON response
+ */
+function sendJson(res: VercelResponse, status: number, data: unknown) {
+  res.status(status).setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify(data));
+}
+
+/**
+ * Simple scoring calculation for estimation requests
+ */
+function calculateScoring(data: {
+  budget?: string;
+  projectType?: string;
+  urgency?: string;
+  features?: string[];
+  description?: string;
+}): "A" | "B" | "C" {
+  let score = 0;
+
+  // Budget scoring
+  if (data.budget) {
+    const budget = data.budget.toLowerCase();
+    if (budget.includes("500") || budget.includes("1000") || budget.includes("млн")) {
+      score += 3;
+    } else if (budget.includes("300") || budget.includes("200") || budget.includes("150")) {
+      score += 2;
+    } else if (budget.includes("100") || budget.includes("50")) {
+      score += 1;
+    }
+  }
+
+  // Project type scoring
+  if (data.projectType) {
+    const highValue = ["saas", "webapp", "ecommerce"];
+    const mediumValue = ["website", "telegram-bot"];
+    if (highValue.includes(data.projectType)) score += 2;
+    else if (mediumValue.includes(data.projectType)) score += 1;
+  }
+
+  // Urgency scoring
+  if (data.urgency === "urgent") score += 2;
+  else if (data.urgency === "standard") score += 1;
+
+  // Features scoring
+  const featureCount = data.features?.length || 0;
+  if (featureCount >= 4) score += 2;
+  else if (featureCount >= 2) score += 1;
+
+  // Description scoring
+  const descLength = data.description?.length || 0;
+  if (descLength > 200) score += 2;
+  else if (descLength > 50) score += 1;
+
+  if (score >= 7) return "A";
+  if (score >= 4) return "B";
+  return "C";
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
-    setCorsHeaders(res);
-    res.status(200).end();
+    res.status(200)
+      .setHeader("Access-Control-Allow-Origin", "*")
+      .setHeader("Access-Control-Allow-Methods", "POST, OPTIONS")
+      .setHeader("Access-Control-Allow-Headers", "Content-Type")
+      .end();
     return;
   }
 
+  // Only allow POST
   if (req.method !== "POST") {
-    setCorsHeaders(res);
-    return methodNotAllowed(res, ["POST"]);
+    res.status(405)
+      .setHeader("Allow", "POST")
+      .setHeader("Access-Control-Allow-Origin", "*")
+      .end();
+    return;
   }
 
-  setCorsHeaders(res);
+  // Set CORS headers
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   try {
-    const body = await readJsonBody<Record<string, unknown>>(req);
+    const body = await parseJsonBody<Record<string, unknown>>(req);
     if (!body) {
-      return sendJson(res, 400, { error: "Validation error", message: "Request body is required" });
+      return sendJson(res, 400, {
+        error: "Validation error",
+        message: "Request body is required",
+      });
     }
 
     const { estimation, ...requestData } = body as { estimation?: EstimationPayload };
@@ -62,7 +141,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const data = parseResult.data;
     const scoring = calculateScoring({
-      type: "estimation",
       budget: data.budget,
       projectType: data.projectType,
       urgency: data.urgency,
@@ -70,9 +148,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       description: data.description,
     });
 
+    // Save to database using on-demand connection
     let leadId: string | null = null;
     try {
-      // Use on-demand database connection
       const lead = await withDb(async (db) => {
         const insertData: InsertLead = {
           type: "estimation",
@@ -104,35 +182,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       leadId = lead.id;
     } catch (error) {
       console.error("Failed to store estimation lead:", error);
-      // Continue even if DB fails - Telegram notification is more important
+      // Continue even if DB fails
     }
-
-    // Send to Telegram
-    const telegramResult = await sendEstimateToTelegram({
-      name: data.contactName,
-      email: data.contactEmail,
-      telegram: data.contactTelegram,
-      projectType: data.projectType,
-      features: data.features,
-      designComplexity: data.designComplexity,
-      urgency: data.urgency,
-      budget: data.budget,
-      description: data.description,
-      scoring,
-      estimation,
-    });
-
-    console.info("[api] sent_to_admin", {
-      type: "estimation",
-      sent_to_admin: telegramResult.ok,
-      reason: telegramResult.reason || null,
-    });
 
     return sendJson(res, 201, {
       success: true,
       message: "Заявка успешно отправлена",
       id: leadId,
-      sentToAdmin: telegramResult.ok,
     });
   } catch (error) {
     console.error("Error processing estimation request:", error);
