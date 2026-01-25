@@ -234,7 +234,7 @@ async function handleEstimate(
 async function handleLogin(
   body: unknown,
   db: ReturnType<typeof import("drizzle-orm").drizzle>
-): Promise<{ success: true } | { error: string; message: string }> {
+): Promise<{ success: true; token: string } | { error: string; message: string }> {
   const parsedBody = body as { login?: string; password?: string };
 
   if (!parsedBody?.login || !parsedBody?.password) {
@@ -274,7 +274,12 @@ async function handleLogin(
 
     console.info("[api] login_success", { login, userId: user.id });
 
-    return { success: true };
+    // Generate simple token: base64(userId:timestamp)
+    const timestamp = Date.now();
+    const tokenData = `${user.id}:${timestamp}`;
+    const token = Buffer.from(tokenData).toString("base64");
+
+    return { success: true, token };
   } catch (error) {
     console.error("Error during login:", error);
     return {
@@ -333,7 +338,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const body = await parseJsonBody(req);
 
     // Route to appropriate handler using on-demand DB connection
-    let result: { success: true; id?: string } | { error: string; message: string };
+    let result: { success: true; id?: string; token?: string } | { error: string; message: string };
 
     switch (action) {
       case "contact": {
@@ -365,9 +370,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           id: result.id,
         });
       } else {
+        // Login action - return token
         return sendJson(res, 200, {
           success: true,
           message: "Вход выполнен успешно",
+          token: result.token,
         });
       }
     } else {

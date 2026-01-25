@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { 
   LayoutDashboard, 
@@ -12,6 +10,7 @@ import {
   Menu,
   X
 } from "lucide-react";
+import { isAuthenticated, removeAuthToken } from "@/lib/auth";
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -20,29 +19,38 @@ interface AdminLayoutProps {
 export function AdminLayout({ children }: AdminLayoutProps) {
   const [location, setLocation] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isAuth, setIsAuth] = useState<boolean | null>(null);
 
-  const { data: session, isLoading } = useQuery<{ isAdmin: boolean }>({
-    queryKey: ["/api/admin/session"],
-  });
-
-  const logoutMutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/admin/logout");
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/session"] });
-      setLocation("/admin/login");
-    },
-  });
-
+  // Check authentication on mount and when location changes
   useEffect(() => {
-    if (!isLoading && !session?.isAdmin && location !== "/admin/login") {
-      setLocation("/admin/login");
-    }
-  }, [session, isLoading, location, setLocation]);
+    const checkAuth = () => {
+      const authenticated = isAuthenticated();
+      setIsAuth(authenticated);
+      
+      if (!authenticated && location !== "/admin/login") {
+        setLocation("/admin/login");
+      }
+    };
 
-  if (isLoading) {
+    checkAuth();
+    
+    // Also check on storage changes (e.g., token removed in another tab)
+    const handleStorageChange = () => {
+      checkAuth();
+    };
+    
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, [location, setLocation]);
+
+  const handleLogout = () => {
+    removeAuthToken();
+    setIsAuth(false);
+    setLocation("/admin/login");
+  };
+
+  // Show loading while checking auth
+  if (isAuth === null) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="animate-pulse text-muted-foreground">Загрузка...</div>
@@ -50,12 +58,13 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     );
   }
 
-  if (!session?.isAdmin) {
+  // Don't render if not authenticated
+  if (!isAuth) {
     return null;
   }
 
   const navItems = [
-    { href: "/admin", label: "Дашборд", icon: LayoutDashboard },
+    { href: "/admin/dashboard", label: "Дашборд", icon: LayoutDashboard },
     { href: "/admin/leads", label: "Заявки", icon: Users },
     { href: "/admin/analytics", label: "Аналитика", icon: BarChart3 },
     { href: "/admin/projects", label: "Портфолио", icon: FolderOpen },
@@ -117,7 +126,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           <Button
             variant="ghost"
             className="w-full justify-start gap-3 text-muted-foreground"
-            onClick={() => logoutMutation.mutate()}
+            onClick={handleLogout}
             data-testid="button-logout"
           >
             <LogOut className="h-4 w-4" />

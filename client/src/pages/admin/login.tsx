@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { setAuthToken, isAuthenticated } from "@/lib/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,14 +16,32 @@ export default function AdminLogin() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (isAuthenticated()) {
+      setLocation("/admin/dashboard");
+    }
+  }, [setLocation]);
+
   const loginMutation = useMutation({
     mutationFn: async (credentials: { login: string; password: string }) => {
       const response = await apiRequest("POST", "/api/?action=login", credentials);
       return response.json();
     },
-    onSuccess: () => {
-      toast({ title: "Добро пожаловать!" });
-      setLocation("/admin");
+    onSuccess: (data: { success: boolean; token?: string }) => {
+      if (data.success && data.token) {
+        // Save token to localStorage
+        setAuthToken(data.token);
+        toast({ title: "Добро пожаловать!" });
+        // Redirect to dashboard
+        setLocation("/admin/dashboard");
+      } else {
+        toast({
+          title: "Ошибка входа",
+          description: "Токен не получен от сервера",
+          variant: "destructive",
+        });
+      }
     },
     onError: (error: Error) => {
       toast({
