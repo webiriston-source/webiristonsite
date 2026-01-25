@@ -13,6 +13,7 @@ import { eq, desc } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import { randomUUID } from "crypto";
 import { put } from "@vercel/blob";
+import busboy from "busboy";
 import { sendContactToTelegram, sendEstimateToTelegram } from "../serverless/telegram.js";
 
 /**
@@ -720,63 +721,245 @@ async function handleDeleteProject(
 }
 
 /**
- * Handle upload image (POST request with base64 or URL)
- * For Vercel, we'll accept base64 encoded image data
+ * Parse multipart form data from request
+ */
+async function parseMultipartFormData(
+  req: VercelRequest
+): Promise<{ file: Buffer; filename: string; contentType: string } | null> {
+  return new Promise((resolve, reject) => {
+    const contentType = req.headers["content-type"] || "";
+    
+    if (!contentType.includes("multipart/form-data")) {
+      resolve(null);
+      return;
+    }
+
+    const bb = busboy({ headers: { "content-type": contentType } });
+    const fileChunks: Buffer[] = [];
+    let filename = "";
+    let fileContentType = "";
+    let fileFound = false;
+    let resolved = false;
+
+    bb.on("file", (name, file, info) => {
+      if (resolved) return;
+      fileFound = true;
+      const { filename: fname, encoding, mimeType } = info;
+      filename = fname || "";
+      fileContentType = mimeType || "application/octet-stream";
+
+      file.on("data", (data: Buffer) => {
+        fileChunks.push(data);
+      });
+
+      file.on("end", () => {
+        if (!resolved) {
+          resolved = true;
+          const fileBuffer = Buffer.concat(fileChunks);
+          resolve({
+            file: fileBuffer,
+            filename,
+            contentType: fileContentType,
+          });
+        }
+      });
+    });
+
+    bb.on("finish", () => {
+      if (!fileFound && !resolved) {
+        resolved = true;
+        resolve(null);
+      }
+    });
+
+    bb.on("error", (error) => {
+      if (!resolved) {
+        resolved = true;
+        reject(error);
+      }
+    });
+
+    // Read request body and pipe to busboy
+    (async () => {
+      try {
+        let bodyBuffer: Buffer;
+        
+        // Check if body is already available
+        if (req.body) {
+          if (Buffer.isBuffer(req.body)) {
+            bodyBuffer = req.body;
+          } else if (typeof req.body === "string") {
+            bodyBuffer = Buffer.from(req.body, "binary");
+          } else {
+            reject(new Error("Invalid request body type"));
+            return;
+          }
+        } else {
+          // Read stream
+          const chunks: Buffer[] = [];
+          try {
+            for await (const chunk of req as AsyncIterable<Buffer | string>) {
+              chunks.push(typeof chunk === "string" ? Buffer.from(chunk, "binary") : chunk);
+            }
+            bodyBuffer = Buffer.concat(chunks);
+          } catch (streamError) {
+            reject(streamError);
+            return;
+          }
+        }
+
+        if (bodyBuffer.length === 0) {
+          if (!resolved) {
+            resolved = true;
+            resolve(null);
+          }
+          return;
+        }
+
+        bb.end(bodyBuffer);
+      } catch (error) {
+        if (!resolved) {
+          resolved = true;
+          reject(error);
+        }
+      }
+    })();
+  });
+}
+
+/**
+ * Handle upload image (POST request with multipart/form-data)
  */
 async function handleUploadImage(
-  body: unknown
-): Promise<{ success: true; url: string } | { error: string; message: string }> {
+  req: VercelRequest
+): Promise<{ success: true; url: string } | { error: string; message: string; statusCode?: number }> {
   try {
-    const parsedBody = body as { file?: string; filename?: string; contentType?: string };
+    // Check if request is multipart/form-data
+    const contentType = req.headers["content-type"] || "";
+    
+    if (!contentType.includes("multipart/form-data")) {
+      // Fallback: try to parse as JSON (base64)
+      const body = await parseJsonBody<{ file?: string; filename?: string; contentType?: string }>(req);
+      
+      if (body?.file) {
+        // Handle base64 fallback
+        let fileBuffer: Buffer;
+        let fileContentType = body.contentType || "image/jpeg";
+        
+        try {
+          const base64Data = body.file.includes(",") 
+            ? body.file.split(",")[1] 
+            : body.file;
+          fileBuffer = Buffer.from(base64Data, "base64");
+        } catch {
+          return {
+            error: "Validation error",
+            message: "Invalid base64 file data",
+            statusCode: 400,
+          };
+        }
 
-    if (!parsedBody?.file) {
-      return {
-        error: "Validation error",
-        message: "File data is required (base64 encoded)",
-      };
+        // Validate file size (max 4MB)
+        if (fileBuffer.length > 4 * 1024 * 1024) {
+          return {
+            error: "File too large",
+            message: "File size must be less than 4MB",
+            statusCode: 413,
+          };
+        }
+
+        // Validate file type
+        if (!fileContentType.startsWith("image/")) {
+          return {
+            error: "Validation error",
+            message: "File must be an image",
+            statusCode: 400,
+          };
+        }
+
+        const extension = body.filename?.split(".").pop() || "jpg";
+        const filename = `projects/${randomUUID()}.${extension}`;
+
+        const blob = await put(filename, fileBuffer, {
+          access: "public",
+          contentType: fileContentType,
+        });
+
+        return { success: true, url: blob.url };
+      }
     }
 
-    // Decode base64
-    let fileBuffer: Buffer;
-    let contentType = parsedBody.contentType || "image/jpeg";
+    // Parse multipart/form-data
+    let formData: { file: Buffer; filename: string; contentType: string } | null;
     
     try {
-      // Remove data URL prefix if present
-      const base64Data = parsedBody.file.includes(",") 
-        ? parsedBody.file.split(",")[1] 
-        : parsedBody.file;
-      fileBuffer = Buffer.from(base64Data, "base64");
-    } catch {
+      formData = await parseMultipartFormData(req);
+    } catch (parseError) {
+      console.error("Failed to parse multipart form data:", parseError);
       return {
         error: "Validation error",
-        message: "Invalid base64 file data",
+        message: "Failed to parse form data",
+        statusCode: 400,
       };
     }
 
-    // Validate file size (max 5MB)
-    if (fileBuffer.length > 5 * 1024 * 1024) {
+    if (!formData) {
       return {
         error: "Validation error",
-        message: "File size must be less than 5MB",
+        message: "No file provided",
+        statusCode: 400,
+      };
+    }
+
+    const { file: fileBuffer, filename, contentType: fileContentType } = formData;
+
+    // Validate file type
+    if (!fileContentType.startsWith("image/")) {
+      return {
+        error: "Validation error",
+        message: "File must be an image",
+        statusCode: 400,
+      };
+    }
+
+    // Validate file size (max 4MB)
+    if (fileBuffer.length > 4 * 1024 * 1024) {
+      return {
+        error: "File too large",
+        message: "File size must be less than 4MB",
+        statusCode: 413,
       };
     }
 
     // Generate unique filename
-    const extension = parsedBody.filename?.split(".").pop() || "jpg";
-    const filename = `projects/${randomUUID()}.${extension}`;
+    const extension = filename.split(".").pop() || "jpg";
+    const blobFilename = `projects/${randomUUID()}.${extension}`;
 
     // Upload to Vercel Blob
-    const blob = await put(filename, fileBuffer, {
+    const blob = await put(blobFilename, fileBuffer, {
       access: "public",
-      contentType,
+      contentType: fileContentType,
     });
 
     return { success: true, url: blob.url };
   } catch (error) {
     console.error("Failed to upload image:", error);
+    
+    // Check if it's a known error
+    if (error instanceof Error) {
+      if (error.message.includes("size") || error.message.includes("large")) {
+        return {
+          error: "File too large",
+          message: "File size must be less than 4MB",
+          statusCode: 413,
+        };
+      }
+    }
+
     return {
       error: "Upload error",
       message: "Не удалось загрузить изображение",
+      statusCode: 500,
     };
   }
 }
@@ -937,6 +1120,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // Handle POST requests (contact, estimate, login, addProject, uploadImage)
+    // Special handling for uploadImage (multipart/form-data)
+    if (action === "uploadImage") {
+      const uploadResult = await handleUploadImage(req);
+      if ("success" in uploadResult && uploadResult.success) {
+        return sendJson(res, 200, uploadResult);
+      } else {
+        const statusCode = uploadResult.statusCode || 400;
+        return sendJson(res, statusCode, {
+          error: uploadResult.error,
+          message: uploadResult.message,
+        });
+      }
+    }
+
     const body = await parseJsonBody(req);
 
     // Route to appropriate handler using on-demand DB connection
@@ -958,14 +1155,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       case "addProject": {
         result = await withDb(async (db) => handleAddProject(body, db));
         break;
-      }
-      case "uploadImage": {
-        const uploadResult = await handleUploadImage(body);
-        if ("success" in uploadResult && uploadResult.success) {
-          return sendJson(res, 200, uploadResult);
-        } else {
-          return sendJson(res, 400, uploadResult);
-        }
       }
       default: {
         return sendJson(res, 400, {
