@@ -728,6 +728,41 @@ async function handleUploadImage(
 ): Promise<{ success: true; url: string } | { error: string; message: string; statusCode?: number }> {
   console.log("[uploadImage] Starting image upload handler");
   
+  // CRITICAL: Check BLOB token availability at the start for debugging
+  // Use ONLY BLOB_READ_WRITE_TOKEN (not VERCEL_BLOB_READ_WRITE_TOKEN)
+  const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
+  
+  // Explicit logging as requested
+  console.log("[uploadImage] BLOB token present:", !!blobToken);
+  console.log("[uploadImage] BLOB_READ_WRITE_TOKEN value:", blobToken ? `${blobToken.substring(0, 10)}...` : "true");
+  
+  // Log all environment variables that contain "BLOB" or "VERCEL" for debugging
+  const blobRelatedVars = Object.keys(process.env).filter(
+    (k) => k.includes("BLOB") || k.includes("VERCEL")
+  );
+  console.log("[uploadImage] All BLOB/VERCEL related env vars:", blobRelatedVars);
+  
+  // Log all process.env keys to see what's available (for debugging only)
+  const allEnvKeys = Object.keys(process.env).sort();
+  console.log("[uploadImage] Total env vars count:", allEnvKeys.length);
+  console.log("[uploadImage] Sample env vars (first 20):", allEnvKeys.slice(0, 20));
+  
+  // Check if BLOB_READ_WRITE_TOKEN exists (must be exact name, not VERCEL_BLOB_READ_WRITE_TOKEN)
+  if (!blobToken) {
+    console.error("[uploadImage] BLOB_READ_WRITE_TOKEN is not set in environment variables");
+    console.error("[uploadImage] Available env vars with BLOB/VERCEL:", blobRelatedVars);
+    console.error("[uploadImage] NOTE: Variable must be named exactly 'BLOB_READ_WRITE_TOKEN' (not 'VERCEL_BLOB_READ_WRITE_TOKEN')");
+    return {
+      error: "Configuration error",
+      message: "BLOB_READ_WRITE_TOKEN is missing. Please add it to Vercel environment variables with the exact name 'BLOB_READ_WRITE_TOKEN' (not 'VERCEL_BLOB_READ_WRITE_TOKEN') and redeploy. Check that it's set for Production/Preview environments.",
+      statusCode: 500,
+    };
+  }
+  
+  console.log("[uploadImage] Using token: BLOB_READ_WRITE_TOKEN");
+  console.log("[uploadImage] Token length:", blobToken.length, "chars");
+  console.log("[uploadImage] Token preview:", `${blobToken.substring(0, 15)}...${blobToken.substring(blobToken.length - 5)}`);
+  
   try {
     const parsedBody = body as { image?: string };
 
@@ -816,26 +851,21 @@ async function handleUploadImage(
     const filename = `projects/${randomUUID()}.${extension}`;
     console.log("[uploadImage] Generated filename:", filename);
 
-    // Check if BLOB_READ_WRITE_TOKEN is available
-    const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
-    if (!blobToken) {
-      console.error("[uploadImage] BLOB_READ_WRITE_TOKEN is not set in environment variables");
-      console.error("[uploadImage] Available env vars:", Object.keys(process.env).filter(k => k.includes("BLOB") || k.includes("VERCEL")));
-      return {
-        error: "Configuration error",
-        message: "BLOB_READ_WRITE_TOKEN is missing. Please add it to Vercel environment variables and redeploy.",
-        statusCode: 500,
-      };
-    }
-    console.log("[uploadImage] BLOB_READ_WRITE_TOKEN found (length:", blobToken.length, "chars)");
-
     // Upload to Vercel Blob
+    // Explicitly pass token to ensure it's used correctly
     let blob;
     try {
       console.log("[uploadImage] Attempting to upload to Vercel Blob...");
+      console.log("[uploadImage] Token available for upload:", !!blobToken);
+      console.log("[uploadImage] Filename:", filename);
+      console.log("[uploadImage] Buffer size:", fileBuffer.length, "bytes");
+      console.log("[uploadImage] Content type:", fileContentType);
+      
+      // Explicitly pass token to put() function
       blob = await put(filename, fileBuffer, {
         access: "public",
         contentType: fileContentType,
+        token: blobToken, // Explicitly pass token to ensure it's used
       });
       console.log("[uploadImage] Upload successful! URL:", blob.url);
     } catch (blobError) {
@@ -930,6 +960,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // Log request method and action for debugging
   console.log(`[API] ${req.method} request for action: ${action}`);
+  
+  // Log BLOB token availability at handler level for debugging
+  if (action === "uploadImage") {
+    console.log("[API] BLOB token present:", !!process.env.BLOB_READ_WRITE_TOKEN);
+    console.log("[API] BLOB_READ_WRITE_TOKEN exists:", typeof process.env.BLOB_READ_WRITE_TOKEN !== "undefined");
+  }
 
   try {
     // Handle GET requests (getContacts, getEstimates)
