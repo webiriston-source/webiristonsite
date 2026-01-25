@@ -69,7 +69,7 @@ export function EstimationSection() {
 
   const submitMutation = useMutation({
     mutationFn: async (data: EstimationRequest & { estimation: EstimationResult }) => {
-      return apiRequest("POST", "/api/estimate", data);
+      return apiRequest("POST", "/api/?action=estimate", data);
     },
     onSuccess: () => {
       toast({

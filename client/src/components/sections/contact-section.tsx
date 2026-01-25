@@ -181,7 +181,7 @@ export function ContactSection() {
 
   const mutation = useMutation({
     mutationFn: async (data: ContactFormData) => {
-      const response = await apiRequest("POST", "/api/contact", data);
+      const response = await apiRequest("POST", "/api/?action=contact", data);
       return response;
     },
     onSuccess: () => {
