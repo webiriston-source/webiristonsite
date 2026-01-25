@@ -59,8 +59,8 @@ https://iristonweb.ru
 INSERT INTO users (id, username, password) 
 VALUES (
   gen_random_uuid(),
-  'admin',
-  '$2b$10$YourHashedPasswordHere'
+  'webiriston',
+  'IristoNOssetiA1990!!!!!!!'
 );
 ```
 
