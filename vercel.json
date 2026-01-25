@@ -3,12 +3,13 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist/public",
   "functions": {
-    "api/**/*.ts": {
+    "api/index.ts": {
       "includeFiles": "{serverless,server,shared}/**"
     }
   },
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/:path*" },
+    { "source": "/api", "destination": "/api/index" },
+    { "source": "/api/", "destination": "/api/index" },
     { "source": "/((?!api/|v/|favicon\\.).*)", "destination": "/index.html" }
   ]
 }
