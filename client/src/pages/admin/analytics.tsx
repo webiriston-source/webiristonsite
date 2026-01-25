@@ -12,6 +12,9 @@ interface LeadStats {
   byScoring: Record<string, number>;
   thisMonth: number;
   lastMonth: number;
+  avgMinPrice?: number;
+  avgMaxPrice?: number;
+  projectTypeCounts?: Record<string, number>;
 }
 
 const COLORS = {
@@ -28,11 +31,21 @@ const STATUS_COLORS = {
 
 export default function AdminAnalytics() {
   const { data: stats, isLoading: statsLoading } = useQuery<LeadStats>({
-    queryKey: ["/api/leads/stats"],
+    queryKey: ["/api/?action=getAnalytics"],
+    queryFn: async () => {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE || window.location.origin}/api/?action=getAnalytics`);
+      if (!response.ok) throw new Error("Failed to fetch analytics");
+      return response.json();
+    },
   });
 
   const { data: leads, isLoading: leadsLoading } = useQuery<Lead[]>({
-    queryKey: ["/api/leads"],
+    queryKey: ["/api/?action=getRequests"],
+    queryFn: async () => {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE || window.location.origin}/api/?action=getRequests`);
+      if (!response.ok) throw new Error("Failed to fetch leads");
+      return response.json();
+    },
   });
 
   const scoringData = stats

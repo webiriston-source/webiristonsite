@@ -56,17 +56,21 @@ export default function AdminLeads() {
   const { toast } = useToast();
 
   const { data: leads, isLoading } = useQuery<Lead[]>({
-    queryKey: ["/api/leads"],
+    queryKey: ["/api/?action=getRequests"],
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/?action=getRequests");
+      return response.json();
+    },
   });
 
   const updateStatusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      const response = await apiRequest("PATCH", `/api/leads/${id}/status`, { status });
+      const response = await apiRequest("PATCH", `/api/?action=updateLeadStatus`, { id, status });
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/leads/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/?action=getRequests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/?action=getAnalytics"] });
       toast({ title: "Статус обновлён" });
     },
     onError: () => {

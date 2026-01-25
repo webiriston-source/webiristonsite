@@ -10,6 +10,7 @@ import {
 import { eq, desc } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import { randomUUID } from "crypto";
+import { sendContactToTelegram, sendEstimateToTelegram } from "../serverless/telegram.js";
 
 /**
  * Parse JSON body from request
@@ -43,7 +44,7 @@ function sendJson(res: VercelResponse, status: number, data: unknown) {
  */
 function setCorsHeaders(res: VercelResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 }
 
@@ -141,6 +142,16 @@ async function handleContact(
       })
       .returning();
 
+    // Send Telegram notification (non-blocking)
+    sendContactToTelegram({
+      name,
+      email,
+      message,
+      scoring,
+    }).catch((error) => {
+      console.error("Failed to send Telegram notification:", error);
+    });
+
     return { success: true, id: lead[0].id };
   } catch (error) {
     console.error("Failed to store contact lead:", error);
@@ -217,6 +228,28 @@ async function handleEstimate(
       .insert(leads)
       .values({ id: randomUUID(), ...insertData })
       .returning();
+
+    // Send Telegram notification (non-blocking)
+    sendEstimateToTelegram({
+      name: data.contactName,
+      email: data.contactEmail,
+      telegram: data.contactTelegram || undefined,
+      projectType: data.projectType,
+      features: data.features,
+      designComplexity: data.designComplexity,
+      urgency: data.urgency,
+      budget: data.budget || undefined,
+      description: data.description || undefined,
+      scoring,
+      estimation: {
+        minPrice: estimation.minPrice,
+        maxPrice: estimation.maxPrice,
+        minDays: estimation.minDays,
+        maxDays: estimation.maxDays,
+      },
+    }).catch((error) => {
+      console.error("Failed to send Telegram notification:", error);
+    });
 
     return { success: true, id: lead[0].id };
   } catch (error) {
@@ -336,6 +369,141 @@ async function handleGetEstimates(
 }
 
 /**
+ * Handle get all requests (GET request) - combines contacts and estimates
+ */
+async function handleGetRequests(
+  db: ReturnType<typeof import("drizzle-orm").drizzle>
+): Promise<{ success: true; data: unknown[] } | { error: string; message: string }> {
+  try {
+    const allLeads = await db
+      .select()
+      .from(leads)
+      .orderBy(desc(leads.createdAt));
+
+    return { success: true, data: allLeads };
+  } catch (error) {
+    console.error("Failed to fetch requests:", error);
+    return {
+      error: "Database error",
+      message: "Не удалось получить список заявок",
+    };
+  }
+}
+
+/**
+ * Handle get analytics (GET request)
+ */
+async function handleGetAnalytics(
+  db: ReturnType<typeof import("drizzle-orm").drizzle>
+): Promise<{ success: true; data: unknown } | { error: string; message: string }> {
+  try {
+    const allLeads = await db.select().from(leads);
+
+    const now = new Date();
+    const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+
+    const thisMonth = allLeads.filter((lead) => {
+      const leadDate = new Date(lead.createdAt);
+      return leadDate >= thisMonthStart;
+    });
+
+    const lastMonth = allLeads.filter((lead) => {
+      const leadDate = new Date(lead.createdAt);
+      return leadDate >= lastMonthStart && leadDate <= lastMonthEnd;
+    });
+
+    const byType: Record<string, number> = {};
+    const byStatus: Record<string, number> = {};
+    const byScoring: Record<string, number> = {};
+
+    allLeads.forEach((lead) => {
+      byType[lead.type] = (byType[lead.type] || 0) + 1;
+      byStatus[lead.status] = (byStatus[lead.status] || 0) + 1;
+      byScoring[lead.scoring] = (byScoring[lead.scoring] || 0) + 1;
+    });
+
+    // Calculate average price for estimates
+    const estimates = allLeads.filter((lead) => lead.type === "estimation" && lead.estimatedMinPrice && lead.estimatedMaxPrice);
+    const avgMinPrice = estimates.length > 0
+      ? Math.round(estimates.reduce((sum, lead) => sum + (lead.estimatedMinPrice || 0), 0) / estimates.length)
+      : 0;
+    const avgMaxPrice = estimates.length > 0
+      ? Math.round(estimates.reduce((sum, lead) => sum + (lead.estimatedMaxPrice || 0), 0) / estimates.length)
+      : 0;
+
+    // Most popular project types
+    const projectTypeCounts: Record<string, number> = {};
+    allLeads.forEach((lead) => {
+      if (lead.projectType) {
+        projectTypeCounts[lead.projectType] = (projectTypeCounts[lead.projectType] || 0) + 1;
+      }
+    });
+
+    const analytics = {
+      total: allLeads.length,
+      byType,
+      byStatus,
+      byScoring,
+      thisMonth: thisMonth.length,
+      lastMonth: lastMonth.length,
+      avgMinPrice,
+      avgMaxPrice,
+      projectTypeCounts,
+    };
+
+    return { success: true, data: analytics };
+  } catch (error) {
+    console.error("Failed to fetch analytics:", error);
+    return {
+      error: "Database error",
+      message: "Не удалось получить аналитику",
+    };
+  }
+}
+
+/**
+ * Handle update lead status (PATCH request)
+ */
+async function handleUpdateLeadStatus(
+  body: unknown,
+  db: ReturnType<typeof import("drizzle-orm").drizzle>
+): Promise<{ success: true } | { error: string; message: string }> {
+  const parsedBody = body as { id?: string; status?: string };
+
+  if (!parsedBody?.id || !parsedBody?.status) {
+    return {
+      error: "Validation error",
+      message: "id and status are required",
+    };
+  }
+
+  const validStatuses = ["new", "in_progress", "closed"];
+  if (!validStatuses.includes(parsedBody.status)) {
+    return {
+      error: "Validation error",
+      message: `Invalid status. Must be one of: ${validStatuses.join(", ")}`,
+    };
+  }
+
+  try {
+    await db
+      .update(leads)
+      .set({ status: parsedBody.status, updatedAt: new Date() })
+      .where(eq(leads.id, parsedBody.id));
+
+    return { success: true };
+  } catch (error) {
+    console.error("Failed to update lead status:", error);
+    return {
+      error: "Database error",
+      message: "Не удалось обновить статус заявки",
+    };
+  }
+}
+
+/**
  * Main handler
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -346,10 +514,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  // Allow both GET and POST
-  if (req.method !== "POST" && req.method !== "GET") {
+  // Allow GET, POST, and PATCH
+  if (req.method !== "POST" && req.method !== "GET" && req.method !== "PATCH") {
     setCorsHeaders(res);
-    res.status(405).setHeader("Allow", "GET, POST").end();
+    res.status(405).setHeader("Allow", "GET, POST, PATCH").end();
     return;
   }
 
@@ -376,7 +544,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!action || typeof action !== "string") {
     return sendJson(res, 400, {
       error: "Missing action",
-      message: "Query parameter 'action' is required. Valid actions: contact, estimate, login, getContacts, getEstimates",
+      message: "Query parameter 'action' is required. Valid actions: contact, estimate, login, getContacts, getEstimates, getRequests, getAnalytics, updateLeadStatus",
     });
   }
 
@@ -394,16 +562,50 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           result = await withDb(async (db) => handleGetEstimates(db));
           break;
         }
+        case "getRequests": {
+          result = await withDb(async (db) => handleGetRequests(db));
+          break;
+        }
+        case "getAnalytics": {
+          result = await withDb(async (db) => handleGetAnalytics(db));
+          break;
+        }
         default: {
           return sendJson(res, 400, {
             error: "Invalid action",
-            message: `Unknown GET action: ${action}. Valid GET actions: getContacts, getEstimates`,
+            message: `Unknown GET action: ${action}. Valid GET actions: getContacts, getEstimates, getRequests, getAnalytics`,
           });
         }
       }
 
       if ("success" in result && result.success) {
         return sendJson(res, 200, result.data);
+      } else {
+        const status = result.error === "Validation error" ? 400 : 500;
+        return sendJson(res, status, result);
+      }
+    }
+
+    // Handle PATCH requests (updateLeadStatus)
+    if (req.method === "PATCH") {
+      const body = await parseJsonBody(req);
+      let result: { success: true } | { error: string; message: string };
+
+      switch (action) {
+        case "updateLeadStatus": {
+          result = await withDb(async (db) => handleUpdateLeadStatus(body, db));
+          break;
+        }
+        default: {
+          return sendJson(res, 400, {
+            error: "Invalid action",
+            message: `Unknown PATCH action: ${action}. Valid PATCH actions: updateLeadStatus`,
+          });
+        }
+      }
+
+      if ("success" in result && result.success) {
+        return sendJson(res, 200, { success: true });
       } else {
         const status = result.error === "Validation error" ? 400 : 500;
         return sendJson(res, status, result);
