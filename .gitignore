@@ -10,3 +10,4 @@ vite.config.ts.*
 .vs
 .replit
 attached_assets
+.vercel

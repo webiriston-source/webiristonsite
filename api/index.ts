@@ -13,7 +13,6 @@ import { eq, desc } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import { randomUUID } from "crypto";
 import { put } from "@vercel/blob";
-import busboy from "busboy";
 import { sendContactToTelegram, sendEstimateToTelegram } from "../serverless/telegram.js";
 
 /**
@@ -721,244 +720,164 @@ async function handleDeleteProject(
 }
 
 /**
- * Parse multipart form data from request
- */
-async function parseMultipartFormData(
-  req: VercelRequest
-): Promise<{ file: Buffer; filename: string; contentType: string } | null> {
-  return new Promise((resolve, reject) => {
-    const contentType = req.headers["content-type"] || "";
-    
-    if (!contentType.includes("multipart/form-data")) {
-      resolve(null);
-      return;
-    }
-
-    const bb = busboy({ headers: { "content-type": contentType } });
-    const fileChunks: Buffer[] = [];
-    let filename = "";
-    let fileContentType = "";
-    let fileFound = false;
-    let resolved = false;
-
-    bb.on("file", (name, file, info) => {
-      if (resolved) return;
-      fileFound = true;
-      const { filename: fname, encoding, mimeType } = info;
-      filename = fname || "";
-      fileContentType = mimeType || "application/octet-stream";
-
-      file.on("data", (data: Buffer) => {
-        fileChunks.push(data);
-      });
-
-      file.on("end", () => {
-        if (!resolved) {
-          resolved = true;
-          const fileBuffer = Buffer.concat(fileChunks);
-          resolve({
-            file: fileBuffer,
-            filename,
-            contentType: fileContentType,
-          });
-        }
-      });
-    });
-
-    bb.on("finish", () => {
-      if (!fileFound && !resolved) {
-        resolved = true;
-        resolve(null);
-      }
-    });
-
-    bb.on("error", (error) => {
-      if (!resolved) {
-        resolved = true;
-        reject(error);
-      }
-    });
-
-    // Read request body and pipe to busboy
-    (async () => {
-      try {
-        let bodyBuffer: Buffer;
-        
-        // Check if body is already available
-        if (req.body) {
-          if (Buffer.isBuffer(req.body)) {
-            bodyBuffer = req.body;
-          } else if (typeof req.body === "string") {
-            bodyBuffer = Buffer.from(req.body, "binary");
-          } else {
-            reject(new Error("Invalid request body type"));
-            return;
-          }
-        } else {
-          // Read stream
-          const chunks: Buffer[] = [];
-          try {
-            for await (const chunk of req as AsyncIterable<Buffer | string>) {
-              chunks.push(typeof chunk === "string" ? Buffer.from(chunk, "binary") : chunk);
-            }
-            bodyBuffer = Buffer.concat(chunks);
-          } catch (streamError) {
-            reject(streamError);
-            return;
-          }
-        }
-
-        if (bodyBuffer.length === 0) {
-          if (!resolved) {
-            resolved = true;
-            resolve(null);
-          }
-          return;
-        }
-
-        bb.end(bodyBuffer);
-      } catch (error) {
-        if (!resolved) {
-          resolved = true;
-          reject(error);
-        }
-      }
-    })();
-  });
-}
-
-/**
- * Handle upload image (POST request with multipart/form-data)
+ * Handle upload image (POST request with base64 encoded image)
+ * Accepts JSON body: { image: "data:image/png;base64,..." } or { image: "base64string" }
  */
 async function handleUploadImage(
-  req: VercelRequest
+  body: unknown
 ): Promise<{ success: true; url: string } | { error: string; message: string; statusCode?: number }> {
+  console.log("[uploadImage] Starting image upload handler");
+  
   try {
-    // Check if request is multipart/form-data
-    const contentType = req.headers["content-type"] || "";
-    
-    if (!contentType.includes("multipart/form-data")) {
-      // Fallback: try to parse as JSON (base64)
-      const body = await parseJsonBody<{ file?: string; filename?: string; contentType?: string }>(req);
-      
-      if (body?.file) {
-        // Handle base64 fallback
-        let fileBuffer: Buffer;
-        let fileContentType = body.contentType || "image/jpeg";
-        
-        try {
-          const base64Data = body.file.includes(",") 
-            ? body.file.split(",")[1] 
-            : body.file;
-          fileBuffer = Buffer.from(base64Data, "base64");
-        } catch {
-          return {
-            error: "Validation error",
-            message: "Invalid base64 file data",
-            statusCode: 400,
-          };
-        }
+    const parsedBody = body as { image?: string };
 
-        // Validate file size (max 4MB)
-        if (fileBuffer.length > 4 * 1024 * 1024) {
-          return {
-            error: "File too large",
-            message: "File size must be less than 4MB",
-            statusCode: 413,
-          };
-        }
+    // Validate that image is provided
+    if (!parsedBody?.image || typeof parsedBody.image !== "string") {
+      console.error("[uploadImage] Validation failed: image field missing or invalid");
+      console.error("[uploadImage] Received body:", JSON.stringify(parsedBody).substring(0, 200));
+      return {
+        error: "Validation error",
+        message: "Image data is required. Expected: { image: 'data:image/png;base64,...' }",
+        statusCode: 400,
+      };
+    }
 
-        // Validate file type
-        if (!fileContentType.startsWith("image/")) {
-          return {
-            error: "Validation error",
-            message: "File must be an image",
-            statusCode: 400,
-          };
-        }
+    console.log("[uploadImage] Image data received, length:", parsedBody.image.length);
 
-        const extension = body.filename?.split(".").pop() || "jpg";
-        const filename = `projects/${randomUUID()}.${extension}`;
+    let base64Data: string;
+    let fileContentType = "image/jpeg"; // Default
 
-        const blob = await put(filename, fileBuffer, {
-          access: "public",
-          contentType: fileContentType,
-        });
+    // Parse data URL format: "data:image/png;base64,iVBORw0KGgo..."
+    if (parsedBody.image.includes(",")) {
+      const [header, data] = parsedBody.image.split(",");
+      base64Data = data;
 
-        return { success: true, url: blob.url };
+      // Extract content type from header: "data:image/png;base64"
+      const mimeMatch = header.match(/data:([^;]+)/);
+      if (mimeMatch) {
+        fileContentType = mimeMatch[1];
       }
+      console.log("[uploadImage] Parsed data URL, content type:", fileContentType);
+    } else {
+      // Assume it's raw base64 string
+      base64Data = parsedBody.image;
+      console.log("[uploadImage] Raw base64 string detected, using default content type:", fileContentType);
     }
 
-    // Parse multipart/form-data
-    let formData: { file: Buffer; filename: string; contentType: string } | null;
-    
-    try {
-      formData = await parseMultipartFormData(req);
-    } catch (parseError) {
-      console.error("Failed to parse multipart form data:", parseError);
-      return {
-        error: "Validation error",
-        message: "Failed to parse form data",
-        statusCode: 400,
-      };
-    }
-
-    if (!formData) {
-      return {
-        error: "Validation error",
-        message: "No file provided",
-        statusCode: 400,
-      };
-    }
-
-    const { file: fileBuffer, filename, contentType: fileContentType } = formData;
-
-    // Validate file type
+    // Validate content type
     if (!fileContentType.startsWith("image/")) {
+      console.error("[uploadImage] Invalid content type:", fileContentType);
       return {
         error: "Validation error",
-        message: "File must be an image",
+        message: "File must be an image. Supported formats: image/jpeg, image/png, image/gif, image/webp",
+        statusCode: 400,
+      };
+    }
+
+    // Decode base64 to Buffer
+    let fileBuffer: Buffer;
+    try {
+      fileBuffer = Buffer.from(base64Data, "base64");
+      console.log("[uploadImage] Base64 decoded successfully, buffer size:", fileBuffer.length, "bytes");
+    } catch (decodeError) {
+      console.error("[uploadImage] Failed to decode base64:", decodeError);
+      if (decodeError instanceof Error) {
+        console.error("[uploadImage] Decode error details:", decodeError.message, decodeError.stack);
+      }
+      return {
+        error: "Validation error",
+        message: "Invalid base64 image data",
         statusCode: 400,
       };
     }
 
     // Validate file size (max 4MB)
     if (fileBuffer.length > 4 * 1024 * 1024) {
+      console.error("[uploadImage] File too large:", fileBuffer.length, "bytes");
       return {
         error: "File too large",
-        message: "File size must be less than 4MB",
+        message: `File size (${Math.round(fileBuffer.length / 1024)}KB) exceeds maximum allowed size of 4MB`,
         statusCode: 413,
       };
     }
 
-    // Generate unique filename
-    const extension = filename.split(".").pop() || "jpg";
-    const blobFilename = `projects/${randomUUID()}.${extension}`;
-
-    // Upload to Vercel Blob
-    const blob = await put(blobFilename, fileBuffer, {
-      access: "public",
-      contentType: fileContentType,
-    });
-
-    return { success: true, url: blob.url };
-  } catch (error) {
-    console.error("Failed to upload image:", error);
-    
-    // Check if it's a known error
-    if (error instanceof Error) {
-      if (error.message.includes("size") || error.message.includes("large")) {
-        return {
-          error: "File too large",
-          message: "File size must be less than 4MB",
-          statusCode: 413,
-        };
-      }
+    // Validate that buffer is not empty
+    if (fileBuffer.length === 0) {
+      console.error("[uploadImage] Empty buffer detected");
+      return {
+        error: "Validation error",
+        message: "Image data is empty",
+        statusCode: 400,
+      };
     }
 
+    // Generate unique filename with appropriate extension
+    const extension = fileContentType.split("/")[1] || "jpg";
+    const filename = `projects/${randomUUID()}.${extension}`;
+    console.log("[uploadImage] Generated filename:", filename);
+
+    // Check if BLOB_READ_WRITE_TOKEN is available
+    const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
+    if (!blobToken) {
+      console.error("[uploadImage] BLOB_READ_WRITE_TOKEN is not set in environment variables");
+      console.error("[uploadImage] Available env vars:", Object.keys(process.env).filter(k => k.includes("BLOB") || k.includes("VERCEL")));
+      return {
+        error: "Configuration error",
+        message: "BLOB_READ_WRITE_TOKEN is missing. Please add it to Vercel environment variables and redeploy.",
+        statusCode: 500,
+      };
+    }
+    console.log("[uploadImage] BLOB_READ_WRITE_TOKEN found (length:", blobToken.length, "chars)");
+
+    // Upload to Vercel Blob
+    let blob;
+    try {
+      console.log("[uploadImage] Attempting to upload to Vercel Blob...");
+      blob = await put(filename, fileBuffer, {
+        access: "public",
+        contentType: fileContentType,
+      });
+      console.log("[uploadImage] Upload successful! URL:", blob.url);
+    } catch (blobError) {
+      console.error("[uploadImage] Failed to upload to Vercel Blob");
+      console.error("[uploadImage] Error type:", blobError?.constructor?.name);
+      console.error("[uploadImage] Error message:", blobError instanceof Error ? blobError.message : String(blobError));
+      console.error("[uploadImage] Error stack:", blobError instanceof Error ? blobError.stack : "No stack trace");
+      
+      // Check if it's a token/authentication error
+      if (blobError instanceof Error) {
+        const errorMsg = blobError.message.toLowerCase();
+        if (errorMsg.includes("token") || errorMsg.includes("unauthorized") || errorMsg.includes("forbidden") || errorMsg.includes("401") || errorMsg.includes("403")) {
+          console.error("[uploadImage] Token authentication error detected");
+          return {
+            error: "Configuration error",
+            message: "BLOB_READ_WRITE_TOKEN is invalid or expired. Please check Vercel environment variables and regenerate the token if needed.",
+            statusCode: 500,
+          };
+        }
+      }
+
+      return {
+        error: "Upload error",
+        message: `Failed to upload image to storage: ${blobError instanceof Error ? blobError.message : "Unknown error"}`,
+        statusCode: 500,
+      };
+    }
+
+    console.log("[uploadImage] Upload completed successfully");
+    return { success: true, url: blob.url };
+  } catch (error) {
+    console.error("[uploadImage] Unexpected error in upload handler");
+    console.error("[uploadImage] Error type:", error?.constructor?.name);
+    console.error("[uploadImage] Error message:", error instanceof Error ? error.message : String(error));
+    console.error("[uploadImage] Error stack:", error instanceof Error ? error.stack : "No stack trace");
+    
+    // Provide detailed error message
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    
     return {
       error: "Upload error",
-      message: "Не удалось загрузить изображение",
+      message: `Не удалось загрузить изображение: ${errorMessage}`,
       statusCode: 500,
     };
   }
@@ -1120,9 +1039,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // Handle POST requests (contact, estimate, login, addProject, uploadImage)
-    // Special handling for uploadImage (multipart/form-data)
+    const body = await parseJsonBody(req);
+
+    // Special handling for uploadImage (base64 JSON)
     if (action === "uploadImage") {
-      const uploadResult = await handleUploadImage(req);
+      const uploadResult = await handleUploadImage(body);
       if ("success" in uploadResult && uploadResult.success) {
         return sendJson(res, 200, uploadResult);
       } else {
@@ -1133,8 +1054,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
       }
     }
-
-    const body = await parseJsonBody(req);
 
     // Route to appropriate handler using on-demand DB connection
     let result: { success: true; id?: string; token?: string } | { error: string; message: string };

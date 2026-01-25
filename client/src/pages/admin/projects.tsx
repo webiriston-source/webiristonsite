@@ -53,30 +53,52 @@ export default function AdminProjects() {
         throw new Error("Размер файла должен быть меньше 4MB");
       }
 
-      // Create FormData
-      const formData = new FormData();
-      formData.append("file", file);
+      // Convert file to base64
+      return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        
+        reader.onloadend = async () => {
+          try {
+            const base64 = reader.result as string; // data:image/png;base64,...
 
-      // Send to API
-      const response = await fetch(
-        `${import.meta.env.VITE_API_BASE || window.location.origin}/api/?action=uploadImage`,
-        {
-          method: "POST",
-          body: formData,
-        }
-      );
+            // Send to API as JSON
+            const response = await fetch(
+              `${import.meta.env.VITE_API_BASE || window.location.origin}/api/?action=uploadImage`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  image: base64,
+                }),
+              }
+            );
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: "Upload failed" }));
-        throw new Error(errorData.message || `Upload failed with status ${response.status}`);
-      }
+            if (!response.ok) {
+              const errorData = await response.json().catch(() => ({ 
+                message: `Upload failed with status ${response.status}` 
+              }));
+              throw new Error(errorData.message || `Upload failed with status ${response.status}`);
+            }
 
-      const data = await response.json();
-      if (data.success && data.url) {
-        return data.url;
-      } else {
-        throw new Error(data.message || "Upload failed");
-      }
+            const data = await response.json();
+            if (data.success && data.url) {
+              resolve(data.url);
+            } else {
+              throw new Error(data.message || "Upload failed");
+            }
+          } catch (error) {
+            reject(error);
+          }
+        };
+
+        reader.onerror = () => {
+          reject(new Error("Failed to read file"));
+        };
+
+        reader.readAsDataURL(file);
+      });
     },
   });
 
