@@ -5,9 +5,21 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 
 const LOFI_TRACKS = [
-  { name: "Chill Vibes", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" },
-  { name: "Study Session", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3" },
-  { name: "Night Coding", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3" },
+  {
+    title: "Ayahuaska",
+    artist: "Cheel",
+    url: "/music/Ayahuaska.mp3",
+  },
+  {
+    title: "IngwaR",
+    artist: "Cheel",
+    url: "/music/IngwaR.mp3",
+  },
+  {
+    title: "Stairway To Heaven",
+    artist: "Cheel",
+    url: "/music/Stairway To Heaven.mp3",
+  },
 ];
 
 function MatrixRain() {
@@ -95,26 +107,52 @@ function LofiPlayer({ onClose }: { onClose: () => void }) {
   const [volume, setVolume] = useState([50]);
   const [currentTrack, setCurrentTrack] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const wasPlayingRef = useRef(false);
 
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.src = "";
+      audioRef.current.onended = null;
     }
-    
+
     const audio = new Audio(LOFI_TRACKS[currentTrack].url);
-    audio.loop = true;
+    audio.loop = false;
     audio.volume = volume[0] / 100;
+
+    audio.onended = () => {
+      const nextIndex = (currentTrack + 1) % LOFI_TRACKS.length;
+      setCurrentTrack(nextIndex);
+      // проигрывание следующего трека запустится в эффекте ниже, если плеер в состоянии play
+    };
+
     audioRef.current = audio;
 
     return () => {
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current.src = "";
+        audioRef.current.onended = null;
         audioRef.current = null;
       }
     };
-  }, [currentTrack]);
+  }, [currentTrack, volume]);
+
+  useEffect(() => {
+    if (!audioRef.current) return;
+
+    if (isPlaying) {
+      audioRef.current
+        .play()
+        .then(() => {
+          wasPlayingRef.current = true;
+        })
+        .catch(() => {});
+    } else {
+      audioRef.current.pause();
+      wasPlayingRef.current = false;
+    }
+  }, [isPlaying, currentTrack]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -135,26 +173,17 @@ function LofiPlayer({ onClose }: { onClose: () => void }) {
 
   const changeTrack = useCallback((direction: "prev" | "next") => {
     const wasPlaying = isPlaying;
+    wasPlayingRef.current = wasPlaying;
     if (audioRef.current) {
       audioRef.current.pause();
     }
     setIsPlaying(false);
-    
     setCurrentTrack((prev) => {
       if (direction === "next") {
         return (prev + 1) % LOFI_TRACKS.length;
       }
       return (prev - 1 + LOFI_TRACKS.length) % LOFI_TRACKS.length;
     });
-    
-    if (wasPlaying) {
-      setTimeout(() => {
-        if (audioRef.current) {
-          audioRef.current.play().catch(() => {});
-          setIsPlaying(true);
-        }
-      }, 100);
-    }
   }, [isPlaying]);
 
   const handleClose = useCallback(() => {
@@ -194,8 +223,11 @@ function LofiPlayer({ onClose }: { onClose: () => void }) {
           <div className="w-16 h-16 mx-auto mb-3 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center">
             <Music className={`w-8 h-8 text-white ${isPlaying ? "animate-pulse" : ""}`} />
           </div>
-          <p className="font-medium">{LOFI_TRACKS[currentTrack].name}</p>
+          <p className="font-medium">{LOFI_TRACKS[currentTrack].title}</p>
           <p className="text-xs text-muted-foreground">
+            {LOFI_TRACKS[currentTrack].artist}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
             Track {currentTrack + 1} of {LOFI_TRACKS.length}
           </p>
         </div>

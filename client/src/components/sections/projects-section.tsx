@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ExternalLink, ChevronRight } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { Project } from "@shared/schema";
@@ -137,20 +136,6 @@ export function ProjectsSection() {
                   </div>
                 )}
 
-                {selectedProject.liveUrl && (
-                  <div className="flex flex-wrap gap-3 pt-4">
-                    <Button asChild data-testid="link-project-live">
-                      <a
-                        href={selectedProject.liveUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <ExternalLink className="w-4 h-4 mr-2" />
-                        Открыть сайт
-                      </a>
-                    </Button>
-                  </div>
-                )}
               </div>
             </>
           )}

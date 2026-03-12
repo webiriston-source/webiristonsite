@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { withDb } from "../shared/db.js";
+import { withDb } from "../shared/db";
 import {
   users,
   leads,
@@ -8,7 +8,7 @@ import {
   estimationRequestSchema,
   type InsertLead,
   type InsertProject,
-} from "../shared/schema.js";
+} from "../shared/schema";
 import { eq, desc } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import { randomUUID } from "crypto";
@@ -117,7 +117,7 @@ function calculateEstimationScoring(data: {
  */
 async function handleContact(
   body: unknown,
-  db: ReturnType<typeof import("drizzle-orm").drizzle>
+  db: any
 ): Promise<{ success: true; id: string } | { error: string; message: string }> {
   const parseResult = contactFormSchema.safeParse(body);
 
@@ -170,7 +170,7 @@ async function handleContact(
  */
 async function handleEstimate(
   body: unknown,
-  db: ReturnType<typeof import("drizzle-orm").drizzle>
+  db: any
 ): Promise<{ success: true; id: string } | { error: string; message: string }> {
   const parsedBody = body as Record<string, unknown>;
   const { estimation, ...requestData } = parsedBody as {
@@ -269,7 +269,7 @@ async function handleEstimate(
  */
 async function handleLogin(
   body: unknown,
-  db: ReturnType<typeof import("drizzle-orm").drizzle>
+  db: any
 ): Promise<{ success: true; token: string } | { error: string; message: string }> {
   const parsedBody = body as { login?: string; password?: string };
 
@@ -329,7 +329,7 @@ async function handleLogin(
  * Handle get contacts (GET request)
  */
 async function handleGetContacts(
-  db: ReturnType<typeof import("drizzle-orm").drizzle>
+  db: any
 ): Promise<{ success: true; data: unknown[] } | { error: string; message: string }> {
   try {
     const contacts = await db
@@ -352,7 +352,7 @@ async function handleGetContacts(
  * Handle get estimates (GET request)
  */
 async function handleGetEstimates(
-  db: ReturnType<typeof import("drizzle-orm").drizzle>
+  db: any
 ): Promise<{ success: true; data: unknown[] } | { error: string; message: string }> {
   try {
     const estimates = await db
@@ -375,7 +375,7 @@ async function handleGetEstimates(
  * Handle get all requests (GET request) - combines contacts and estimates
  */
 async function handleGetRequests(
-  db: ReturnType<typeof import("drizzle-orm").drizzle>
+  db: any
 ): Promise<{ success: true; data: unknown[] } | { error: string; message: string }> {
   try {
     const allLeads = await db
@@ -397,7 +397,7 @@ async function handleGetRequests(
  * Handle get projects (GET request)
  */
 async function handleGetProjects(
-  db: ReturnType<typeof import("drizzle-orm").drizzle>
+  db: any
 ): Promise<{ success: true; data: unknown[] } | { error: string; message: string }> {
   try {
     const allProjects = await db
@@ -418,23 +418,25 @@ async function handleGetProjects(
 /**
  * Handle get analytics (GET request)
  */
+import type { Lead } from "../shared/schema";
+
 async function handleGetAnalytics(
-  db: ReturnType<typeof import("drizzle-orm").drizzle>
+  db: any
 ): Promise<{ success: true; data: unknown } | { error: string; message: string }> {
   try {
-    const allLeads = await db.select().from(leads);
+    const allLeads = (await (db as any).select().from(leads)) as Lead[];
 
     const now = new Date();
     const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
 
-    const thisMonth = allLeads.filter((lead) => {
+    const thisMonth = allLeads.filter((lead: Lead) => {
       const leadDate = new Date(lead.createdAt);
       return leadDate >= thisMonthStart;
     });
 
-    const lastMonth = allLeads.filter((lead) => {
+    const lastMonth = allLeads.filter((lead: Lead) => {
       const leadDate = new Date(lead.createdAt);
       return leadDate >= lastMonthStart && leadDate <= lastMonthEnd;
     });
@@ -443,24 +445,32 @@ async function handleGetAnalytics(
     const byStatus: Record<string, number> = {};
     const byScoring: Record<string, number> = {};
 
-    allLeads.forEach((lead) => {
+    allLeads.forEach((lead: Lead) => {
       byType[lead.type] = (byType[lead.type] || 0) + 1;
       byStatus[lead.status] = (byStatus[lead.status] || 0) + 1;
       byScoring[lead.scoring] = (byScoring[lead.scoring] || 0) + 1;
     });
 
     // Calculate average price for estimates
-    const estimates = allLeads.filter((lead) => lead.type === "estimation" && lead.estimatedMinPrice && lead.estimatedMaxPrice);
-    const avgMinPrice = estimates.length > 0
-      ? Math.round(estimates.reduce((sum, lead) => sum + (lead.estimatedMinPrice || 0), 0) / estimates.length)
-      : 0;
-    const avgMaxPrice = estimates.length > 0
-      ? Math.round(estimates.reduce((sum, lead) => sum + (lead.estimatedMaxPrice || 0), 0) / estimates.length)
-      : 0;
+    const estimates = allLeads.filter(
+      (lead: Lead) => lead.type === "estimation" && lead.estimatedMinPrice && lead.estimatedMaxPrice
+    );
+    const avgMinPrice =
+      estimates.length > 0
+        ? Math.round(
+            estimates.reduce((sum: number, lead: Lead) => sum + (lead.estimatedMinPrice || 0), 0) / estimates.length
+          )
+        : 0;
+    const avgMaxPrice =
+      estimates.length > 0
+        ? Math.round(
+            estimates.reduce((sum: number, lead: Lead) => sum + (lead.estimatedMaxPrice || 0), 0) / estimates.length
+          )
+        : 0;
 
     // Most popular project types
     const projectTypeCounts: Record<string, number> = {};
-    allLeads.forEach((lead) => {
+    allLeads.forEach((lead: Lead) => {
       if (lead.projectType) {
         projectTypeCounts[lead.projectType] = (projectTypeCounts[lead.projectType] || 0) + 1;
       }
@@ -493,7 +503,7 @@ async function handleGetAnalytics(
  */
 async function handleUpdateLeadStatus(
   body: unknown,
-  db: ReturnType<typeof import("drizzle-orm").drizzle>
+  db: any
 ): Promise<{ success: true } | { error: string; message: string }> {
   const parsedBody = body as { id?: string; status?: string };
 
@@ -532,7 +542,7 @@ async function handleUpdateLeadStatus(
  * Handle get unread count (GET request)
  */
 async function handleGetUnreadCount(
-  db: ReturnType<typeof import("drizzle-orm").drizzle>
+  db: any
 ): Promise<{ success: true; count: number } | { error: string; message: string }> {
   try {
     const unreadLeads = await db
@@ -555,7 +565,7 @@ async function handleGetUnreadCount(
  */
 async function handleMarkAsRead(
   body: unknown,
-  db: ReturnType<typeof import("drizzle-orm").drizzle>
+  db: any
 ): Promise<{ success: true } | { error: string; message: string }> {
   const parsedBody = body as { id?: string };
 
@@ -588,7 +598,7 @@ async function handleMarkAsRead(
  */
 async function handleAddProject(
   body: unknown,
-  db: ReturnType<typeof import("drizzle-orm").drizzle>
+  db: any
 ): Promise<{ success: true; id: string } | { error: string; message: string }> {
   const parsedBody = body as {
     title?: string;
@@ -641,7 +651,7 @@ async function handleAddProject(
  */
 async function handleUpdateProject(
   body: unknown,
-  db: ReturnType<typeof import("drizzle-orm").drizzle>
+  db: any
 ): Promise<{ success: true } | { error: string; message: string }> {
   const parsedBody = body as {
     id?: string;
@@ -693,7 +703,7 @@ async function handleUpdateProject(
  */
 async function handleDeleteProject(
   body: unknown,
-  db: ReturnType<typeof import("drizzle-orm").drizzle>
+  db: any
 ): Promise<{ success: true } | { error: string; message: string }> {
   const parsedBody = body as { id?: string };
 
@@ -970,7 +980,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     // Handle GET requests (getContacts, getEstimates)
     if (req.method === "GET") {
-      let result: { success: true; data: unknown[] } | { error: string; message: string };
+      let result: { success: true; data: unknown } | { error: string; message: string };
 
       switch (action) {
         case "getContacts": {
@@ -1012,8 +1022,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if ("success" in result && result.success) {
         return sendJson(res, 200, result.data);
       } else {
-        const status = result.error === "Validation error" ? 400 : 500;
-        return sendJson(res, status, result);
+        const errorResult = result as { error: string; message: string };
+        const status = errorResult.error === "Validation error" ? 400 : 500;
+        return sendJson(res, status, errorResult);
       }
     }
 
@@ -1038,8 +1049,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if ("success" in result && result.success) {
         return sendJson(res, 200, { success: true });
       } else {
-        const status = result.error === "Validation error" ? 400 : 500;
-        return sendJson(res, status, result);
+        const errorResult = result as { error: string; message: string };
+        const status = errorResult.error === "Validation error" ? 400 : 500;
+        return sendJson(res, status, errorResult);
       }
     }
 
@@ -1072,8 +1084,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if ("success" in result && result.success) {
         return sendJson(res, 200, { success: true });
       } else {
-        const status = result.error === "Validation error" ? 400 : 500;
-        return sendJson(res, status, result);
+        const errorResult = result as { error: string; message: string };
+        const status = errorResult.error === "Validation error" ? 400 : 500;
+        return sendJson(res, status, errorResult);
       }
     }
 
@@ -1086,10 +1099,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if ("success" in uploadResult && uploadResult.success) {
         return sendJson(res, 200, uploadResult);
       } else {
-        const statusCode = uploadResult.statusCode || 400;
+        const errorResult = uploadResult as { error: string; message: string; statusCode?: number };
+        const statusCode = errorResult.statusCode || 400;
         return sendJson(res, statusCode, {
-          error: uploadResult.error,
-          message: uploadResult.message,
+          error: errorResult.error,
+          message: errorResult.message,
         });
       }
     }
@@ -1145,8 +1159,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
       }
     } else {
-      const status = result.error === "Validation error" ? 400 : result.error === "Authentication error" ? 401 : 500;
-      return sendJson(res, status, result);
+      const errorResult = result as { error: string; message: string };
+      const status =
+        errorResult.error === "Validation error" ? 400 : errorResult.error === "Authentication error" ? 401 : 500;
+      return sendJson(res, status, errorResult);
     }
   } catch (error) {
     console.error(`Error handling action '${action}':`, error);
