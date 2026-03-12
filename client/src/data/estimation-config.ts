@@ -34,13 +34,13 @@ export interface Urgency {
  * Источники: FL.ru, Habr Career, Freelancehunt, средние ставки веб-студий
  */
 export const projectTypes: ProjectType[] = [
-  { id: "landing", label: "Лендинг", basePrice: 45000, baseDays: 7 },
-  { id: "website", label: "Корпоративный сайт", basePrice: 120000, baseDays: 21 },
-  { id: "ecommerce", label: "Интернет-магазин", basePrice: 250000, baseDays: 45 },
-  { id: "saas", label: "SaaS-платформа", basePrice: 500000, baseDays: 90 },
-  { id: "webapp", label: "Веб-приложение", basePrice: 350000, baseDays: 60 },
-  { id: "telegram-bot", label: "Telegram-бот", basePrice: 60000, baseDays: 14 },
-  { id: "other", label: "Другое", basePrice: 80000, baseDays: 21 },
+  { id: "landing", label: "Лендинг", basePrice: 58000, baseDays: 7 },
+  { id: "website", label: "Корпоративный сайт", basePrice: 154000, baseDays: 21 },
+  { id: "ecommerce", label: "Интернет-магазин", basePrice: 320000, baseDays: 45 },
+  { id: "saas", label: "SaaS-платформа", basePrice: 640000, baseDays: 90 },
+  { id: "webapp", label: "Веб-приложение", basePrice: 448000, baseDays: 60 },
+  { id: "telegram-bot", label: "Telegram-бот", basePrice: 77000, baseDays: 14 },
+  { id: "other", label: "Другое", basePrice: 102000, baseDays: 21 },
 ];
 
 /**
@@ -48,12 +48,12 @@ export const projectTypes: ProjectType[] = [
  * Цены указаны за базовую реализацию каждой функции
  */
 export const features: Feature[] = [
-  { id: "auth", label: "Авторизация / Регистрация", price: 35000, days: 5 },
-  { id: "admin", label: "Админ-панель", price: 80000, days: 14 },
-  { id: "payment", label: "Онлайн-оплата", price: 50000, days: 7 },
-  { id: "profile", label: "Личный кабинет", price: 60000, days: 10 },
-  { id: "integrations", label: "Интеграции (API, CRM, и т.д.)", price: 45000, days: 7 },
-  { id: "multilang", label: "Мультиязычность", price: 30000, days: 5 },
+  { id: "auth", label: "Авторизация / Регистрация", price: 45000, days: 5 },
+  { id: "admin", label: "Админ-панель", price: 102000, days: 14 },
+  { id: "payment", label: "Онлайн-оплата", price: 64000, days: 7 },
+  { id: "profile", label: "Личный кабинет", price: 77000, days: 10 },
+  { id: "integrations", label: "Интеграции (API, CRM, и т.д.)", price: 58000, days: 7 },
+  { id: "multilang", label: "Мультиязычность", price: 38000, days: 5 },
 ];
 
 /**
@@ -64,19 +64,19 @@ export const designComplexities: DesignComplexity[] = [
     id: "basic", 
     label: "Базовый", 
     description: "Шаблонный дизайн, минимальная кастомизация",
-    coefficient: 1.0 
+    coefficient: 1.28 
   },
   { 
     id: "modern", 
     label: "Современный", 
     description: "Уникальный дизайн, анимации, адаптивность",
-    coefficient: 1.4 
+    coefficient: 1.79 
   },
   { 
     id: "premium", 
     label: "Премиум + UX", 
     description: "Авторский дизайн, глубокая проработка UX",
-    coefficient: 1.8 
+    coefficient: 2.3 
   },
 ];
 
@@ -88,21 +88,21 @@ export const urgencies: Urgency[] = [
     id: "relaxed", 
     label: "Не срочно", 
     description: "Гибкие сроки, приоритет качества",
-    coefficient: 0.95,
+    coefficient: 1.22,
     daysMultiplier: 1.3
   },
   { 
     id: "standard", 
     label: "Стандарт", 
     description: "Обычные сроки выполнения",
-    coefficient: 1.0,
+    coefficient: 1.28,
     daysMultiplier: 1.0
   },
   { 
     id: "urgent", 
     label: "Срочно", 
     description: "Ускоренная разработка, приоритетная работа",
-    coefficient: 1.6,
+    coefficient: 2.05,
     daysMultiplier: 0.6
   },
 ];
