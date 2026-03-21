@@ -17,17 +17,19 @@ import {
 import { eq, desc } from "drizzle-orm";
 import bcryptjs from "bcryptjs";
 import { randomUUID } from "crypto";
-import { put } from "@vercel/blob";
-import {
-  answerTelegramCallbackQuery,
-  sendContactToTelegram,
-  sendEstimateToTelegram,
-  sendTelegramBroadcast,
-  sendTelegramDirectMessage,
-  sendTelegramPhoto,
-} from "../serverless/telegram.js";
 import type { ProjectStatus } from "../shared/schema";
 import { calculateEstimate, type EstimationResult } from "../shared/estimation";
+
+type TelegramServerless = typeof import("../serverless/telegram.js");
+let telegramModulePromise: Promise<TelegramServerless> | null = null;
+
+/** Lazy-load Telegram helpers so a bad import / missing file does not break login and other routes */
+function loadTelegram(): Promise<TelegramServerless> {
+  if (!telegramModulePromise) {
+    telegramModulePromise = import("../serverless/telegram.js");
+  }
+  return telegramModulePromise;
+}
 
 /**
  * Parse JSON body from request
@@ -142,8 +144,8 @@ function parsePositiveInt(value: unknown): number | null {
 
 /** Vercel/UI often store env values with surrounding quotes — strip for reliable compare */
 function normalizeEnvSecret(value: string | undefined): string | undefined {
-  if (value === undefined) return undefined;
-  let s = value.trim();
+  if (value === undefined || value === null) return undefined;
+  let s = String(value).trim();
   if (
     (s.startsWith('"') && s.endsWith('"') && s.length >= 2) ||
     (s.startsWith("'") && s.endsWith("'") && s.length >= 2)
@@ -270,6 +272,7 @@ const REFERRAL_PROGRAM_INTRO = `Реферальная программа
 const REFERRAL_CAPTION_MAX = 1000;
 
 async function sendReferralProgramIntro(telegramUserId: string) {
+  const tg = await loadTelegram();
   const keyboard = [...buildReferralInlineKeyboard()];
   const imageUrl = process.env.TELEGRAM_REFERRAL_IMAGE_URL?.trim();
   if (imageUrl) {
@@ -277,13 +280,13 @@ async function sendReferralProgramIntro(telegramUserId: string) {
       REFERRAL_PROGRAM_INTRO.length <= REFERRAL_CAPTION_MAX
         ? REFERRAL_PROGRAM_INTRO
         : `${REFERRAL_PROGRAM_INTRO.slice(0, REFERRAL_CAPTION_MAX - 30)}\n\n(продолжение ниже)`;
-    await sendTelegramPhoto(telegramUserId, imageUrl, caption, { inline_keyboard: keyboard });
+    await tg.sendTelegramPhoto(telegramUserId, imageUrl, caption, { inline_keyboard: keyboard });
     if (REFERRAL_PROGRAM_INTRO.length > REFERRAL_CAPTION_MAX) {
       const rest = REFERRAL_PROGRAM_INTRO.slice(REFERRAL_CAPTION_MAX - 30);
-      await sendTelegramDirectMessage(telegramUserId, rest, { inline_keyboard: keyboard });
+      await tg.sendTelegramDirectMessage(telegramUserId, rest, { inline_keyboard: keyboard });
     }
   } else {
-    await sendTelegramDirectMessage(telegramUserId, REFERRAL_PROGRAM_INTRO, { inline_keyboard: keyboard });
+    await tg.sendTelegramDirectMessage(telegramUserId, REFERRAL_PROGRAM_INTRO, { inline_keyboard: keyboard });
   }
 }
 
@@ -442,7 +445,8 @@ function telegramUserIsAdminEnv(user: TelegramUserInfo): boolean {
 
 async function notifyTelegramDbLimited(userId: string) {
   try {
-    await sendTelegramDirectMessage(
+    const tg = await loadTelegram();
+    await tg.sendTelegramDirectMessage(
       userId,
       "Сервис временно ограничен. Попробуйте позже или нажмите /start.",
       { inline_keyboard: [[{ text: "Меню", callback_data: "menu:open" }]] }
@@ -453,6 +457,13 @@ async function notifyTelegramDbLimited(userId: string) {
 }
 
 async function handleTelegramWebhook(body: unknown): Promise<{ ok: true } | { error: string; message: string }> {
+  let tg: TelegramServerless;
+  try {
+    tg = await loadTelegram();
+  } catch (e) {
+    console.error("[telegramWebhook] failed to load telegram module:", e);
+    return { ok: true };
+  }
   const update = body as any;
   const callback = update?.callback_query;
   const message = update?.message;
@@ -470,7 +481,7 @@ async function handleTelegramWebhook(body: unknown): Promise<{ ok: true } | { er
       if (startPayload.startsWith("ref")) {
         await sendReferralProgramIntro(userId);
       }
-      await sendTelegramDirectMessage(userId, "Привет! Выберите действие:", {
+      await tg.sendTelegramDirectMessage(userId, "Привет! Выберите действие:", {
         inline_keyboard: buildMainMenu(isAdminEnv),
       });
     } catch (e) {
@@ -500,7 +511,7 @@ async function handleTelegramWebhook(body: unknown): Promise<{ ok: true } | { er
       return { ok: true };
     }
     try {
-      await sendTelegramDirectMessage(userId, `Пост готов к отправке:\n\n${message.text}`, {
+      await tg.sendTelegramDirectMessage(userId, `Пост готов к отправке:\n\n${message.text}`, {
         inline_keyboard: [
           [{ text: "Отправить подписчикам", callback_data: "admin:post:confirm" }],
           [{ text: "Отмена", callback_data: "menu:open" }],
@@ -514,7 +525,7 @@ async function handleTelegramWebhook(body: unknown): Promise<{ ok: true } | { er
 
   if (!callback?.id || !callback?.data) return { ok: true };
   try {
-    await answerTelegramCallbackQuery(callback.id);
+    await tg.answerTelegramCallbackQuery(callback.id);
   } catch (e) {
     console.error("[telegramWebhook] answerCallbackQuery failed:", e);
   }
@@ -523,7 +534,7 @@ async function handleTelegramWebhook(body: unknown): Promise<{ ok: true } | { er
   if (data === "referral:info") {
     try {
       await sendReferralProgramIntro(userId);
-      await sendTelegramDirectMessage(userId, "Меню:", { inline_keyboard: buildMainMenu(isAdmin) });
+      await tg.sendTelegramDirectMessage(userId, "Меню:", { inline_keyboard: buildMainMenu(isAdmin) });
     } catch (e) {
       console.error("[telegramWebhook] referral:info send failed:", e);
     }
@@ -538,7 +549,7 @@ async function handleTelegramWebhook(body: unknown): Promise<{ ok: true } | { er
       await setSubscriberState(db, userId, "menu", { calc: { features: [] } });
     });
     try {
-      await sendTelegramDirectMessage(userId, "Главное меню:", { inline_keyboard: buildMainMenu(isAdmin) });
+      await tg.sendTelegramDirectMessage(userId, "Главное меню:", { inline_keyboard: buildMainMenu(isAdmin) });
     } catch (e) {
       console.error("[telegramWebhook] menu:open send failed:", e);
     }
@@ -554,7 +565,7 @@ async function handleTelegramWebhook(body: unknown): Promise<{ ok: true } | { er
       return { ok: true };
     }
     try {
-      await sendTelegramDirectMessage(userId, "Отправьте текст поста одним сообщением.");
+      await tg.sendTelegramDirectMessage(userId, "Отправьте текст поста одним сообщением.");
     } catch (e) {
       console.error("[telegramWebhook] admin:post:start send failed:", e);
     }
@@ -572,7 +583,7 @@ async function handleTelegramWebhook(body: unknown): Promise<{ ok: true } | { er
       const subscriberIds = recipients
         .filter((row: any) => row.telegramUserId !== userId)
         .map((row: any) => String(row.telegramUserId));
-      const stats = await sendTelegramBroadcast(subscriberIds, text);
+      const stats = await tg.sendTelegramBroadcast(subscriberIds, text);
       for (const line of stats.errors) {
         if (line.includes("bot was blocked") || line.includes("chat not found") || line.includes("user is deactivated")) {
           const targetId = line.split(":")[0];
@@ -593,7 +604,7 @@ async function handleTelegramWebhook(body: unknown): Promise<{ ok: true } | { er
     }
     const stats = broadcastResult.value;
     try {
-      await sendTelegramDirectMessage(
+      await tg.sendTelegramDirectMessage(
         userId,
         `Рассылка завершена.\nУспешно: ${stats.success}\nОшибки: ${stats.failed}\nЗаблокировали бота: ${stats.blocked}`,
         { inline_keyboard: buildMainMenu(true) }
@@ -624,7 +635,7 @@ async function handleTelegramWebhook(body: unknown): Promise<{ ok: true } | { er
         await setSubscriberState(db, userId, "calc_project_type", { calc: { features: [] } });
       },
       async () =>
-        sendTelegramDirectMessage(userId, "Шаг 1/4. Выберите тип проекта:", {
+        tg.sendTelegramDirectMessage(userId, "Шаг 1/4. Выберите тип проекта:", {
           inline_keyboard: tgProjectTypes.map((item) => [{ text: item.label, callback_data: `calc:type:${item.id}` }]),
         })
     );
@@ -640,7 +651,7 @@ async function handleTelegramWebhook(body: unknown): Promise<{ ok: true } | { er
       async () => {
         const featureRows = tgFeatures.map((item) => [{ text: item.label, callback_data: `calc:feature:${item.id}` }]);
         featureRows.push([{ text: "Далее", callback_data: "calc:features:done" }]);
-        await sendTelegramDirectMessage(userId, "Шаг 2/4. Выберите нужные функции (можно несколько):", {
+        await tg.sendTelegramDirectMessage(userId, "Шаг 2/4. Выберите нужные функции (можно несколько):", {
           inline_keyboard: featureRows,
         });
       }
@@ -660,7 +671,7 @@ async function handleTelegramWebhook(body: unknown): Promise<{ ok: true } | { er
         await setSubscriberState(db, userId, "calc_features", payload);
       },
       async () =>
-        sendTelegramDirectMessage(
+        tg.sendTelegramDirectMessage(
           userId,
           `Функций выбрано: ${payload.calc?.features.length || 0}. Можно выбрать еще или нажать "Далее".`,
           { inline_keyboard: [[{ text: "Далее", callback_data: "calc:features:done" }]] }
@@ -674,7 +685,7 @@ async function handleTelegramWebhook(body: unknown): Promise<{ ok: true } | { er
         await setSubscriberState(db, userId, "calc_design", currentPayload);
       },
       async () =>
-        sendTelegramDirectMessage(userId, "Шаг 3/4. Выберите сложность дизайна:", {
+        tg.sendTelegramDirectMessage(userId, "Шаг 3/4. Выберите сложность дизайна:", {
           inline_keyboard: tgDesign.map((item) => [{ text: item.label, callback_data: `calc:design:${item.id}` }]),
         })
     );
@@ -690,7 +701,7 @@ async function handleTelegramWebhook(body: unknown): Promise<{ ok: true } | { er
         await setSubscriberState(db, userId, "calc_urgency", payload);
       },
       async () =>
-        sendTelegramDirectMessage(userId, "Шаг 4/4. Выберите срочность:", {
+        tg.sendTelegramDirectMessage(userId, "Шаг 4/4. Выберите срочность:", {
           inline_keyboard: tgUrgency.map((item) => [{ text: item.label, callback_data: `calc:urgency:${item.id}` }]),
         })
     );
@@ -706,7 +717,7 @@ async function handleTelegramWebhook(body: unknown): Promise<{ ok: true } | { er
         await setSubscriberState(db, userId, "calc_result", payload);
       },
       async () =>
-        sendTelegramDirectMessage(userId, formatEstimateSummary(payload.calc), {
+        tg.sendTelegramDirectMessage(userId, formatEstimateSummary(payload.calc), {
           inline_keyboard: [
             [{ text: "Новый расчет", callback_data: "calc:start" }],
             [{ text: "Меню", callback_data: "menu:open" }],
@@ -757,17 +768,21 @@ async function handleContact(
       .returning();
 
     // Send Telegram notification (non-blocking)
-    sendContactToTelegram({
-      name,
-      email,
-      message,
-      scoring,
-      referralCode: referralCode || undefined,
-      referrerTelegramId: referrerTelegramId || undefined,
-      referrerUsername: normalizeReferralUsername(referrerUsername) || undefined,
-    }).catch((error) => {
-      console.error("Failed to send Telegram notification:", error);
-    });
+    loadTelegram()
+      .then((t) =>
+        t.sendContactToTelegram({
+          name,
+          email,
+          message,
+          scoring,
+          referralCode: referralCode || undefined,
+          referrerTelegramId: referrerTelegramId || undefined,
+          referrerUsername: normalizeReferralUsername(referrerUsername) || undefined,
+        })
+      )
+      .catch((error) => {
+        console.error("Failed to send Telegram notification:", error);
+      });
 
     return { success: true, id: lead[0].id };
   } catch (error) {
@@ -871,29 +886,33 @@ async function handleEstimate(
       .returning();
 
     // Send Telegram notification (non-blocking)
-    sendEstimateToTelegram({
-      name: data.contactName,
-      email: data.contactEmail,
-      telegram: data.contactTelegram || undefined,
-      projectType: data.projectType,
-      features: data.features,
-      designComplexity: data.designComplexity,
-      urgency: data.urgency,
-      budget: data.budget || undefined,
-      description: data.description || undefined,
-      scoring,
-      estimation: {
-        minPrice: estimation.minPrice,
-        maxPrice: estimation.maxPrice,
-        minDays: estimation.minDays,
-        maxDays: estimation.maxDays,
-      },
-      referralCode: data.referralCode || undefined,
-      referrerTelegramId: data.referrerTelegramId || undefined,
-      referrerUsername: normalizeReferralUsername(data.referrerUsername) || undefined,
-    }).catch((error) => {
-      console.error("Failed to send Telegram notification:", error);
-    });
+    loadTelegram()
+      .then((t) =>
+        t.sendEstimateToTelegram({
+          name: data.contactName,
+          email: data.contactEmail,
+          telegram: data.contactTelegram || undefined,
+          projectType: data.projectType,
+          features: data.features,
+          designComplexity: data.designComplexity,
+          urgency: data.urgency,
+          budget: data.budget || undefined,
+          description: data.description || undefined,
+          scoring,
+          estimation: {
+            minPrice: estimation.minPrice,
+            maxPrice: estimation.maxPrice,
+            minDays: estimation.minDays,
+            maxDays: estimation.maxDays,
+          },
+          referralCode: data.referralCode || undefined,
+          referrerTelegramId: data.referrerTelegramId || undefined,
+          referrerUsername: normalizeReferralUsername(data.referrerUsername) || undefined,
+        })
+      )
+      .catch((error) => {
+        console.error("Failed to send Telegram notification:", error);
+      });
 
     const row = lead[0];
     if (!row?.id) {
@@ -956,7 +975,13 @@ async function handleLogin(
           .limit(1);
 
         if (!user) return null;
-        const isPasswordValid = await bcryptjs.compare(password, user.password);
+        let isPasswordValid = false;
+        try {
+          isPasswordValid = await bcryptjs.compare(password, user.password);
+        } catch (cmpErr) {
+          console.error("[api] login_bcrypt_error", cmpErr);
+          return null;
+        }
         if (!isPasswordValid) return null;
         return Buffer.from(`${user.id}:${Date.now()}`).toString("base64");
       });
@@ -1301,7 +1326,8 @@ async function handleUpdateProjectLifecycle(
         "Статус: approved (готово к выплате)",
         `Реферер: ${rewardResult.referrerTelegramId}${usernamePart}`,
       ].join("\n");
-      await sendTelegramDirectMessage(rewardResult.referrerTelegramId, text);
+      const telegram = await loadTelegram();
+      await telegram.sendTelegramDirectMessage(rewardResult.referrerTelegramId, text);
     }
 
     return { success: true, rewardCreated: rewardResult.updated };
@@ -1662,6 +1688,7 @@ async function handleUploadImage(
       console.log("[uploadImage] Buffer size:", fileBuffer.length, "bytes");
       console.log("[uploadImage] Content type:", fileContentType);
       
+      const { put } = await import("@vercel/blob");
       // Explicitly pass token to put() function
       blob = await put(filename, fileBuffer, {
         access: "public",
@@ -1896,6 +1923,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Handle POST requests (contact, estimate, login, addProject, uploadImage, telegramWebhook)
     const body = await parseJsonBody(req);
 
+    // Login: isolated path so a failure in other modules or unexpected throws never become opaque 500
+    if (action === "login") {
+      try {
+        const loginResult = await handleLogin(body);
+        if ("success" in loginResult && loginResult.success) {
+          return sendJson(res, 200, {
+            success: true,
+            message: "Вход выполнен успешно",
+            token: loginResult.token,
+          });
+        }
+        const errorResult = loginResult as { error: string; message: string; code?: string };
+        const status =
+          errorResult.error === "Validation error"
+            ? 400
+            : errorResult.error === "Authentication error"
+              ? 401
+              : errorResult.error === "Service error"
+                ? 503
+                : 500;
+        return sendJson(res, status, errorResult);
+      } catch (e) {
+        console.error("[api] login_fatal", e);
+        return sendJson(res, 503, {
+          error: "Service error",
+          message: "Сервис авторизации временно недоступен. Попробуйте позже.",
+          code: "login_fatal",
+        });
+      }
+    }
+
     // Special handling for uploadImage (base64 JSON)
     if (action === "uploadImage") {
       const uploadResult = await handleUploadImage(body);
@@ -1938,10 +1996,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         result = await withDb(async (db) => handleEstimate(body, db));
         break;
       }
-      case "login": {
-        result = await handleLogin(body);
-        break;
-      }
       case "addProject": {
         result = await withDb(async (db) => handleAddProject(body, db));
         break;
@@ -1949,7 +2003,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       default: {
         return sendJson(res, 400, {
           error: "Invalid action",
-          message: `Unknown POST action: ${action}. Valid POST actions: contact, estimate, login, addProject, uploadImage, telegramWebhook`,
+          message: `Unknown POST action: ${action}. Valid POST actions: contact, estimate, addProject, uploadImage, telegramWebhook`,
         });
       }
     }
@@ -1972,14 +2026,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           message: "Проект успешно добавлен",
           id: result.id,
         });
-      } else {
-        // Login action - return token
-        return sendJson(res, 200, {
-          success: true,
-          message: "Вход выполнен успешно",
-          token: result.token,
-        });
       }
+      console.error("[api] unexpected POST success for action:", action);
+      return sendJson(res, 500, {
+        error: "Internal server error",
+        message: "Некорректное состояние запроса",
+      });
     } else {
       const errorResult = result as { error: string; message: string; code?: string };
       const status =
