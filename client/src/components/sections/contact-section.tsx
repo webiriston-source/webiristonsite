@@ -380,6 +380,26 @@ export function ContactSection() {
               </div>
             </div>
 
+            <div className="bg-card border border-card-border rounded-md p-6 space-y-3">
+              <h3 className="font-semibold">Реферальная программа</h3>
+              <p className="text-sm text-muted-foreground">
+                Рекомендуйте мои услуги коллегам и получайте вознаграждение с оплаченных проектов.
+              </p>
+              <ul className="text-sm text-muted-foreground space-y-1">
+                <li>Ставка: до 20% от финальной суммы проекта.</li>
+                <li>Начисление: после оплаты и подтверждения этапа клиентом.</li>
+                <li>Как участвовать: поделитесь реферальной ссылкой или через Telegram-бота.</li>
+              </ul>
+              <div className="pt-1">
+                <Button asChild variant="outline" size="sm" data-testid="link-referral-bot">
+                  <a href="https://t.me/iristonwebbot" target="_blank" rel="noopener noreferrer">
+                    <SiTelegram className="w-4 h-4 mr-2" />
+                    Открыть Telegram-бота
+                  </a>
+                </Button>
+              </div>
+            </div>
+
             <div className="text-center text-muted-foreground text-sm">
               <p>Обычно отвечаю в течение 24 часов</p>
             </div>

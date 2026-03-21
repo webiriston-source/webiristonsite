@@ -15,7 +15,6 @@ import {
   type TelegramFlowState,
 } from "../shared/schema";
 import { eq, desc } from "drizzle-orm";
-import bcrypt from "bcrypt";
 import { randomUUID } from "crypto";
 import { put } from "@vercel/blob";
 import {
@@ -683,8 +682,7 @@ async function handleEstimate(
  * Handle admin login
  */
 async function handleLogin(
-  body: unknown,
-  db: any
+  body: unknown
 ): Promise<{ success: true; token: string } | { error: string; message: string }> {
   const parsedBody = body as { login?: string; password?: string };
 
@@ -696,48 +694,96 @@ async function handleLogin(
   }
 
   const { login, password } = parsedBody;
+  const envLogin = process.env.ADMIN_LOGIN;
+  const envPassword = process.env.ADMIN_PASSWORD;
+
+  const envAuth = () => {
+    if (!envLogin || !envPassword) return null;
+    if (login !== envLogin || password !== envPassword) return null;
+    const tokenData = `env-admin:${Date.now()}`;
+    return { success: true as const, token: Buffer.from(tokenData).toString("base64") };
+  };
 
   try {
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.username, login))
-      .limit(1);
+    const dbAuthResult = await withDb(async (db) => {
+      const [user] = await db
+        .select()
+        .from(users)
+        .where(eq(users.username, login))
+        .limit(1);
 
-    if (!user) {
-      console.warn("[api] login_failed", { login, reason: "user_not_found" });
-      return {
-        error: "Authentication error",
-        message: "Неверный логин или пароль",
-      };
+      if (!user) return null;
+
+      // Load bcrypt lazily to avoid serverless cold-start crashes if native module is unavailable.
+      const bcryptModule = await import("bcrypt").catch(() => null);
+      if (!bcryptModule?.default?.compare) {
+        throw new Error("bcrypt_unavailable");
+      }
+      const isPasswordValid = await bcryptModule.default.compare(password, user.password);
+      if (!isPasswordValid) return null;
+
+      const tokenData = `${user.id}:${Date.now()}`;
+      return { success: true as const, token: Buffer.from(tokenData).toString("base64") };
+    });
+
+    if (dbAuthResult) {
+      console.info("[api] login_success_db", { login });
+      return dbAuthResult;
     }
 
-    // Verify password using bcrypt
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-
-    if (!isPasswordValid) {
-      console.warn("[api] login_failed", { login, reason: "invalid_password" });
-      return {
-        error: "Authentication error",
-        message: "Неверный логин или пароль",
-      };
+    const fallback = envAuth();
+    if (fallback) {
+      console.info("[api] login_success_env_fallback", { login });
+      return fallback;
     }
 
-    console.info("[api] login_success", { login, userId: user.id });
-
-    // Generate simple token: base64(userId:timestamp)
-    const timestamp = Date.now();
-    const tokenData = `${user.id}:${timestamp}`;
-    const token = Buffer.from(tokenData).toString("base64");
-
-    return { success: true, token };
-  } catch (error) {
-    console.error("Error during login:", error);
+    console.warn("[api] login_failed", { login, reason: "invalid_credentials" });
     return {
-      error: "Database error",
-      message: "Произошла ошибка при входе",
+      error: "Authentication error",
+      message: "Неверный логин или пароль",
+    };
+  } catch (error) {
+    console.error("Error during login, trying env fallback:", error);
+    const fallback = envAuth();
+    if (fallback) {
+      console.info("[api] login_success_env_after_db_error", { login });
+      return fallback;
+    }
+    return {
+      error: "Service error",
+      message: "Сервис авторизации временно недоступен. Попробуйте позже.",
     };
   }
+}
+
+async function handleHealthCheck() {
+  const payload: Record<string, unknown> = {
+    ok: true,
+    env: {
+      hasDatabaseUrl: Boolean(process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.DATABASE_URL_UNPOOLED),
+      hasAdminEnvCredentials: Boolean(process.env.ADMIN_LOGIN && process.env.ADMIN_PASSWORD),
+      hasTelegramBotToken: Boolean(process.env.TELEGRAM_BOT_TOKEN),
+      hasTelegramAdminId: Boolean(process.env.TELEGRAM_ADMIN_ID),
+      hasTelegramChatId: Boolean(process.env.TELEGRAM_CHAT_ID),
+    },
+    db: {
+      connected: false,
+    },
+  };
+
+  try {
+    await withDb(async (db) => {
+      await db.select().from(users).limit(1);
+    });
+    payload.db = { connected: true };
+  } catch (error) {
+    payload.db = {
+      connected: false,
+      reason: error instanceof Error ? error.message : "unknown_error",
+    };
+  }
+
+  return payload;
 }
 
 /**
@@ -1473,7 +1519,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!action || typeof action !== "string") {
     return sendJson(res, 400, {
       error: "Missing action",
-          message: "Query parameter 'action' is required. Valid actions: contact, estimate, login, getContacts, getEstimates, getRequests, getAnalytics, getUnreadCount, getProjects, getReferralRewards, updateLeadStatus, updateProjectLifecycle, markAsRead, addProject, uploadImage, telegramWebhook",
+          message: "Query parameter 'action' is required. Valid actions: contact, estimate, login, health, getContacts, getEstimates, getRequests, getAnalytics, getUnreadCount, getProjects, getReferralRewards, updateLeadStatus, updateProjectLifecycle, markAsRead, addProject, uploadImage, telegramWebhook",
     });
   }
 
@@ -1524,10 +1570,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           result = await withDb(async (db) => handleGetReferralRewards(db));
           break;
         }
+        case "health": {
+          const health = await handleHealthCheck();
+          return sendJson(res, 200, health);
+        }
         default: {
           return sendJson(res, 400, {
             error: "Invalid action",
-            message: `Unknown GET action: ${action}. Valid GET actions: getContacts, getEstimates, getRequests, getAnalytics, getUnreadCount, getProjects, getReferralRewards`,
+            message: `Unknown GET action: ${action}. Valid GET actions: health, getContacts, getEstimates, getRequests, getAnalytics, getUnreadCount, getProjects, getReferralRewards`,
           });
         }
       }
@@ -1646,7 +1696,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         break;
       }
       case "login": {
-        result = await withDb(async (db) => handleLogin(body, db));
+        result = await handleLogin(body);
         break;
       }
       case "addProject": {

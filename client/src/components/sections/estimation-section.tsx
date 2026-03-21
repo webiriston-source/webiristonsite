@@ -29,6 +29,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { estimationRequestSchema, type EstimationRequest } from "@shared/schema";
 import { resolveReferralPayload } from "@/lib/referral";
+import { getBudgetHints } from "@/lib/budget-hints";
 import {
   projectTypes,
   features,
@@ -91,6 +92,7 @@ export function EstimationSection() {
   });
 
   const watchedValues = form.watch();
+  const budgetHints = getBudgetHints(watchedValues.budget);
 
   const updateEstimation = () => {
     if (watchedValues.projectType && watchedValues.designComplexity && watchedValues.urgency) {
@@ -373,7 +375,7 @@ export function EstimationSection() {
                               name="budget"
                               render={({ field }) => (
                                 <FormItem>
-                                  <FormLabel>Ваш бюджет (опционально)</FormLabel>
+                                  <FormLabel>Ваш бюджет (опционально, как ориентир)</FormLabel>
                                   <FormControl>
                                     <Input
                                       placeholder="Например: 100 000 ₽"
@@ -381,10 +383,22 @@ export function EstimationSection() {
                                       data-testid="input-budget"
                                     />
                                   </FormControl>
+                                  <p className="text-xs text-muted-foreground">
+                                    Это не ограничение, а ориентир: подберу реалистичную конфигурацию под ваш диапазон.
+                                  </p>
                                   <FormMessage />
                                 </FormItem>
                               )}
                             />
+
+                            <div className="rounded-md border border-border bg-muted/30 p-4 space-y-2">
+                              <p className="text-sm font-medium">Что обычно можно сделать в вашем бюджете</p>
+                              {budgetHints.map((hint) => (
+                                <div key={hint.title} className="text-xs text-muted-foreground">
+                                  <span className="text-foreground font-medium">{hint.title}:</span> {hint.details}
+                                </div>
+                              ))}
+                            </div>
                           </motion.div>
                         )}
 

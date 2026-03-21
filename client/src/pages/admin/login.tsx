@@ -44,9 +44,16 @@ export default function AdminLogin() {
       }
     },
     onError: (error: Error) => {
+      const message = error.message || "";
+      const isUnauthorized = message.includes("401");
+      const isServerError = message.includes("500") || message.includes("Service error");
       toast({
         title: "Ошибка входа",
-        description: error.message || "Неверный логин или пароль",
+        description: isUnauthorized
+          ? "Неверный логин или пароль"
+          : isServerError
+            ? "Сервер авторизации временно недоступен. Попробуйте позже."
+            : "Не удалось выполнить вход. Попробуйте позже.",
         variant: "destructive",
       });
     },
