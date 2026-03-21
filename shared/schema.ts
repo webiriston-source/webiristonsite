@@ -155,7 +155,7 @@ export type ContactFormData = z.infer<typeof contactFormSchema>;
 
 export const estimationRequestSchema = z.object({
   projectType: z.string().min(1, "Выберите тип проекта"),
-  features: z.array(z.string()),
+  features: z.array(z.string()).default([]),
   designComplexity: z.string().min(1, "Выберите сложность дизайна"),
   urgency: z.string().min(1, "Выберите срочность"),
   budget: z.string().optional(),

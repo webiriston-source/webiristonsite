@@ -35,7 +35,6 @@ import {
   features,
   designComplexities,
   urgencies,
-  calculateEstimate,
   formatPrice,
   formatDays,
   type EstimationResult,
@@ -70,13 +69,23 @@ export function EstimationSection() {
   });
 
   const submitMutation = useMutation({
-    mutationFn: async (data: EstimationRequest & { estimation: EstimationResult }) => {
-      return apiRequest("POST", "/api/?action=estimate", {
+    mutationFn: async (data: EstimationRequest) => {
+      const res = await apiRequest("POST", "/api/?action=estimate", {
         ...data,
         ...resolveReferralPayload(),
       });
+      return res.json() as {
+        success?: boolean;
+        id?: string;
+        message?: string;
+        estimation?: EstimationResult;
+      };
     },
-    onSuccess: () => {
+    onSuccess: (json) => {
+      if (json?.estimation) {
+        setEstimation(json.estimation);
+      }
+      setShowResult(true);
       toast({
         title: "Заявка отправлена",
         description: "Свяжусь с вами в ближайшее время для обсуждения деталей.",
@@ -94,22 +103,7 @@ export function EstimationSection() {
   const watchedValues = form.watch();
   const budgetHints = getBudgetHints(watchedValues.budget);
 
-  const updateEstimation = () => {
-    if (watchedValues.projectType && watchedValues.designComplexity && watchedValues.urgency) {
-      const result = calculateEstimate(
-        watchedValues.projectType,
-        watchedValues.features,
-        watchedValues.designComplexity,
-        watchedValues.urgency
-      );
-      setEstimation(result);
-    }
-  };
-
   const nextStep = () => {
-    if (currentStep === 3) {
-      updateEstimation();
-    }
     if (currentStep < 4) {
       setCurrentStep(currentStep + 1);
     }
@@ -137,10 +131,7 @@ export function EstimationSection() {
   };
 
   const onSubmit = (data: EstimationRequest) => {
-    if (estimation) {
-      setShowResult(true);
-      submitMutation.mutate({ ...data, estimation });
-    }
+    submitMutation.mutate(data);
   };
 
   const handleFeatureToggle = (featureId: string) => {
@@ -413,20 +404,9 @@ export function EstimationSection() {
                             <h3 className="text-lg font-semibold mb-4">
                               Контактная информация
                             </h3>
-
-                            {estimation && (
-                              <div className="p-4 rounded-md bg-primary/5 border border-primary/20 mb-6">
-                                <div className="text-sm text-muted-foreground mb-2">
-                                  Предварительная оценка:
-                                </div>
-                                <div className="text-2xl font-bold text-primary">
-                                  {formatPrice(estimation.minPrice)} — {formatPrice(estimation.maxPrice)}
-                                </div>
-                                <div className="text-sm text-muted-foreground mt-1">
-                                  Сроки: {formatDays(estimation.minDays)} — {formatDays(estimation.maxDays)}
-                                </div>
-                              </div>
-                            )}
+                            <p className="text-sm text-muted-foreground mb-4">
+                              Оставьте контакты — после отправки покажем предварительную оценку по выбранным параметрам.
+                            </p>
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                               <FormField
@@ -543,7 +523,7 @@ export function EstimationSection() {
                             ) : (
                               <>
                                 <Send className="w-4 h-4 mr-2" />
-                                Получить оценку
+                                Отправить и получить оценку
                               </>
                             )}
                           </Button>
@@ -570,7 +550,7 @@ export function EstimationSection() {
                     Предварительная оценка
                   </h3>
 
-                  {estimation && (
+                  {estimation ? (
                     <>
                       <div className="text-4xl font-bold text-primary my-6">
                         {formatPrice(estimation.minPrice)} — {formatPrice(estimation.maxPrice)}
@@ -586,12 +566,16 @@ export function EstimationSection() {
                         <br /><br />
                         <strong>Данная оценка не является публичной офертой.</strong>
                       </div>
-
-                      <p className="text-muted-foreground mb-8">
-                        Заявка отправлена. Свяжусь с вами в ближайшее время для обсуждения деталей.
-                      </p>
                     </>
+                  ) : (
+                    <p className="text-muted-foreground mb-6">
+                      Заявка принята. Детали оценки уточню при связи с вами.
+                    </p>
                   )}
+
+                  <p className="text-muted-foreground mb-8">
+                    Заявка отправлена. Свяжусь с вами в ближайшее время для обсуждения деталей.
+                  </p>
 
                   <Button onClick={resetForm} variant="outline" data-testid="button-new-estimate">
                     Новая оценка

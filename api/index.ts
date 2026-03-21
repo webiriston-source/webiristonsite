@@ -27,6 +27,7 @@ import {
   sendTelegramPhoto,
 } from "../serverless/telegram.js";
 import type { ProjectStatus } from "../shared/schema";
+import { calculateEstimate, type EstimationResult } from "../shared/estimation";
 
 /**
  * Parse JSON body from request
@@ -784,16 +785,19 @@ async function handleContact(
 async function handleEstimate(
   body: unknown,
   db: any
-): Promise<{ success: true; id: string } | { error: string; message: string }> {
-  const parsedBody = body as Record<string, unknown>;
-  const { estimation, ...requestData } = parsedBody as {
-    estimation?: {
-      minPrice: number;
-      maxPrice: number;
-      minDays: number;
-      maxDays: number;
+): Promise<
+  { success: true; id: string; estimation: EstimationResult } | { error: string; message: string }
+> {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return {
+      error: "Validation error",
+      message: "Некорректное тело запроса",
     };
-  };
+  }
+
+  const parsedBody = body as Record<string, unknown>;
+  // Ignore client-sent estimation — compute server-side (avoids tampering and JSON/type issues)
+  const { estimation: _clientEstimation, ...requestData } = parsedBody as Record<string, unknown>;
 
   const parseResult = estimationRequestSchema.safeParse(requestData);
 
@@ -804,14 +808,30 @@ async function handleEstimate(
     };
   }
 
-  if (!estimation || typeof estimation.minPrice !== "number" || typeof estimation.maxPrice !== "number") {
+  const data = parseResult.data;
+  const estimation = calculateEstimate(
+    data.projectType,
+    data.features,
+    data.designComplexity,
+    data.urgency
+  );
+
+  if (
+    !Number.isFinite(estimation.minPrice) ||
+    !Number.isFinite(estimation.maxPrice) ||
+    estimation.minPrice <= 0 ||
+    estimation.maxPrice <= 0 ||
+    !Number.isFinite(estimation.minDays) ||
+    !Number.isFinite(estimation.maxDays) ||
+    estimation.minDays <= 0 ||
+    estimation.maxDays <= 0
+  ) {
     return {
       error: "Validation error",
-      message: "Estimation data is required",
+      message: "Не удалось рассчитать оценку по выбранным параметрам",
     };
   }
 
-  const data = parseResult.data;
   const scoring = calculateEstimationScoring({
     budget: data.budget,
     projectType: data.projectType,
@@ -875,7 +895,14 @@ async function handleEstimate(
       console.error("Failed to send Telegram notification:", error);
     });
 
-    return { success: true, id: lead[0].id };
+    const row = lead[0];
+    if (!row?.id) {
+      return {
+        error: "Database error",
+        message: "Не удалось сохранить заявку",
+      };
+    }
+    return { success: true, id: row.id, estimation };
   } catch (error) {
     console.error("Failed to store estimation lead:", error);
     return {
@@ -1898,7 +1925,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // Route to appropriate handler using on-demand DB connection
-    let result: { success: true; id?: string; token?: string } | { error: string; message: string };
+    let result:
+      | { success: true; id?: string; token?: string; estimation?: EstimationResult }
+      | { error: string; message: string };
 
     switch (action) {
       case "contact": {
@@ -1928,11 +1957,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Send response
     if ("success" in result && result.success) {
       if (action === "contact" || action === "estimate") {
-        return sendJson(res, 201, {
+        const payload: Record<string, unknown> = {
           success: true,
           message: action === "contact" ? "Сообщение успешно отправлено" : "Заявка успешно отправлена",
           id: result.id,
-        });
+        };
+        if (action === "estimate" && "estimation" in result && result.estimation) {
+          payload.estimation = result.estimation;
+        }
+        return sendJson(res, 201, payload);
       } else if (action === "addProject") {
         return sendJson(res, 201, {
           success: true,

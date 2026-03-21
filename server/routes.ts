@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { storage } from "./storage.ts";
 import { contactFormSchema, estimationRequestSchema } from "../shared/schema.ts";
+import { calculateEstimate, type EstimationResult } from "../shared/estimation.ts";
 import { fromError } from "zod-validation-error";
 import { calculateScoring, getScoringEmoji } from "./scoring.ts";
 
@@ -20,13 +21,6 @@ function dbg(msg: string, data: Record<string, unknown>, hyp: string) {
   }).catch(() => {});
 }
 // #endregion
-
-interface EstimationResult {
-  minPrice: number;
-  maxPrice: number;
-  minDays: number;
-  maxDays: number;
-}
 
 const projectTypeLabels: Record<string, string> = {
   landing: "Лендинг",
@@ -276,7 +270,15 @@ export async function registerRoutes(app: Express): Promise<void> {
     dbg("estimate entry", { bodyKeys: Object.keys(req.body || {}), hasBody: !!req.body, hasEstimation: !!(req.body as any)?.estimation }, "H2");
     // #endregion
     try {
-      const { estimation, ...requestData } = req.body;
+      const body = req.body;
+      if (body === null || typeof body !== "object" || Array.isArray(body)) {
+        return res.status(400).json({
+          error: "Validation error",
+          message: "Некорректное тело запроса",
+        });
+      }
+
+      const { estimation: _clientEstimation, ...requestData } = body as Record<string, unknown>;
 
       const parseResult = estimationRequestSchema.safeParse(requestData);
 
@@ -292,14 +294,30 @@ export async function registerRoutes(app: Express): Promise<void> {
         });
       }
 
-      if (!estimation || typeof estimation.minPrice !== "number" || typeof estimation.maxPrice !== "number") {
+      const data = parseResult.data;
+
+      const estimation = calculateEstimate(
+        data.projectType,
+        data.features,
+        data.designComplexity,
+        data.urgency
+      );
+
+      if (
+        !Number.isFinite(estimation.minPrice) ||
+        !Number.isFinite(estimation.maxPrice) ||
+        estimation.minPrice <= 0 ||
+        estimation.maxPrice <= 0 ||
+        !Number.isFinite(estimation.minDays) ||
+        !Number.isFinite(estimation.maxDays) ||
+        estimation.minDays <= 0 ||
+        estimation.maxDays <= 0
+      ) {
         return res.status(400).json({
           error: "Validation error",
-          message: "Estimation data is required"
+          message: "Не удалось рассчитать оценку по выбранным параметрам",
         });
       }
-
-      const data = parseResult.data;
 
       const scoring = calculateScoring({
         type: "estimation",
@@ -365,6 +383,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         success: true,
         message: "Заявка успешно отправлена",
         id: lead.id,
+        estimation,
       });
     } catch (error) {
       // #region agent log
