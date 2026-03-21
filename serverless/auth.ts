@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import type { VercelRequest, VercelResponse } from "@vercel/node";
+import type { VercelRequest, VercelResponse } from "../shared/vercel-types";
 import { parseCookies, serializeCookie } from "./cookies";
 
 const COOKIE_NAME = "admin_session";

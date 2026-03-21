@@ -1,4 +1,4 @@
-import type { VercelRequest, VercelResponse } from "@vercel/node";
+import type { VercelRequest, VercelResponse } from "../shared/vercel-types";
 import { sendJson } from "./http";
 import { getAdminSession } from "./auth";
 

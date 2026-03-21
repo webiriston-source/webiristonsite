@@ -1,4 +1,4 @@
-import type { VercelRequest, VercelResponse } from "@vercel/node";
+import type { VercelRequest, VercelResponse } from "../shared/vercel-types";
 
 function parseJson(input: unknown): unknown {
   if (input == null) return null;
