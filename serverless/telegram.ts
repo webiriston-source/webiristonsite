@@ -49,7 +49,8 @@ export type TelegramSendResult = {
 
 export type TelegramInlineButton = {
   text: string;
-  callback_data: string;
+  callback_data?: string;
+  url?: string;
 };
 
 type TelegramApiResult<T = unknown> = {
@@ -205,6 +206,26 @@ export async function sendTelegramDirectMessage(
     text,
     parse_mode: options?.parse_mode,
     disable_web_page_preview: options?.disable_web_page_preview ?? true,
+    reply_markup,
+  });
+  return { ok: result.ok, reason: result.reason };
+}
+
+export async function sendTelegramPhoto(
+  chatId: string,
+  photoUrl: string,
+  caption: string,
+  options?: {
+    parse_mode?: "HTML" | "Markdown" | "MarkdownV2";
+    inline_keyboard?: TelegramInlineButton[][];
+  }
+): Promise<TelegramSendResult> {
+  const reply_markup = options?.inline_keyboard ? { inline_keyboard: options.inline_keyboard } : undefined;
+  const result = await telegramApiRequest("sendPhoto", {
+    chat_id: chatId,
+    photo: photoUrl,
+    caption,
+    parse_mode: options?.parse_mode,
     reply_markup,
   });
   return { ok: result.ok, reason: result.reason };

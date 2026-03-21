@@ -14,7 +14,7 @@ import "dotenv/config";
 import { withDb } from "../shared/db.js";
 import { users } from "../shared/schema.js";
 import { eq } from "drizzle-orm";
-import bcrypt from "bcrypt";
+import bcryptjs from "bcryptjs";
 import { randomUUID } from "crypto";
 import readline from "readline";
 
@@ -40,11 +40,11 @@ function askQuestion(rl: readline.Interface, question: string): Promise<string> 
 }
 
 /**
- * Hash password using bcrypt
+ * Hash password using bcryptjs (compatible with serverless login verify)
  */
 async function hashPassword(password: string): Promise<string> {
   const saltRounds = 10;
-  return await bcrypt.hash(password, saltRounds);
+  return await bcryptjs.hash(password, saltRounds);
 }
 
 /**

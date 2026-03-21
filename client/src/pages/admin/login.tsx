@@ -46,7 +46,8 @@ export default function AdminLogin() {
     onError: (error: Error) => {
       const message = error.message || "";
       const isUnauthorized = message.includes("401");
-      const isServerError = message.includes("500") || message.includes("Service error");
+      const isServerError =
+        message.includes("500") || message.includes("503") || message.includes("Service error");
       toast({
         title: "Ошибка входа",
         description: isUnauthorized

@@ -21,10 +21,14 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { resolveReferralPayload } from "@/lib/referral";
 
+const TELEGRAM_BOT_USERNAME = "iristonwebbot";
+
 const socialLinks = [
   { icon: SiTelegram, href: "https://t.me/iristonweb", label: "Telegram" },
   { icon: SiTelegram, href: "https://t.me/iristonwebbot", label: "Telegram Bot" },
 ];
+
+const referralBotDeepLink = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=ref_contacts`;
 
 function RobotIllustration({ focusedField }: { focusedField: string | null }) {
   const getEyePosition = () => {
@@ -383,18 +387,19 @@ export function ContactSection() {
             <div className="bg-card border border-card-border rounded-md p-6 space-y-3">
               <h3 className="font-semibold">Реферальная программа</h3>
               <p className="text-sm text-muted-foreground">
-                Рекомендуйте мои услуги коллегам и получайте вознаграждение с оплаченных проектов.
+                Порекомендуйте меня знакомым — это ваше честное посредничество и моя «сарафанная» реклама.
+                За приведённого клиента — приятный бонус до 20% от суммы проекта после оплаты, без лишней возни с вашей стороны.
               </p>
               <ul className="text-sm text-muted-foreground space-y-1">
-                <li>Ставка: до 20% от финальной суммы проекта.</li>
-                <li>Начисление: после оплаты и подтверждения этапа клиентом.</li>
-                <li>Как участвовать: поделитесь реферальной ссылкой или через Telegram-бота.</li>
+                <li>Вы делитесь контактом или ссылкой — клиент оформляет заявку.</li>
+                <li>После оплаты и подтверждения работ начисляется вознаграждение (условия уточняются индивидуально).</li>
+                <li>Подробности пришлю в боте сразу после перехода по кнопке ниже.</li>
               </ul>
               <div className="pt-1">
-                <Button asChild variant="outline" size="sm" data-testid="link-referral-bot">
-                  <a href="https://t.me/iristonwebbot" target="_blank" rel="noopener noreferrer">
+                <Button asChild variant="default" size="sm" data-testid="link-referral-bot">
+                  <a href={referralBotDeepLink} target="_blank" rel="noopener noreferrer">
                     <SiTelegram className="w-4 h-4 mr-2" />
-                    Открыть Telegram-бота
+                    Заработать со мной — в боте
                   </a>
                 </Button>
               </div>

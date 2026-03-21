@@ -15,6 +15,7 @@ import {
   type TelegramFlowState,
 } from "../shared/schema";
 import { eq, desc } from "drizzle-orm";
+import bcryptjs from "bcryptjs";
 import { randomUUID } from "crypto";
 import { put } from "@vercel/blob";
 import {
@@ -23,6 +24,7 @@ import {
   sendEstimateToTelegram,
   sendTelegramBroadcast,
   sendTelegramDirectMessage,
+  sendTelegramPhoto,
 } from "../serverless/telegram.js";
 import type { ProjectStatus } from "../shared/schema";
 
@@ -231,8 +233,51 @@ const tgUrgency: Array<{ id: string; label: string; coefficient: number; daysMul
   { id: "urgent", label: "Срочно", coefficient: 2.05, daysMultiplier: 0.6 },
 ];
 
+function buildReferralInlineKeyboard() {
+  return [
+    [{ text: "Открыть сайт", url: "https://iristonweb.ru/" }],
+    [{ text: "Раздел «Контакты»", url: "https://iristonweb.ru/#contact" }],
+  ];
+}
+
+/** Plain text (no HTML) to avoid entity parse errors in Bot API */
+const REFERRAL_PROGRAM_INTRO = `Реферальная программа
+
+Вы рекомендуете мои услуги знакомым и коллегам — это честное посредничество: вы помогаете мне с рекламой «сарафаном», а я благодарю вас бонусом.
+
+Как это работает:
+• Клиент переходит по вашей ссылке или указывает ваш Telegram при заявке.
+• После оплаты и подтверждения проекта начисляется вознаграждение до 20% от финальной суммы договора (условия фиксируются индивидуально).
+
+Вам не нужно «продавать» — достаточно порекомендовать. Подробности и актуальные условия — на сайте в разделе «Контакты» или напишите мне в личку.
+
+Спасибо, что делитесь контактами!`;
+
+const REFERRAL_CAPTION_MAX = 1000;
+
+async function sendReferralProgramIntro(telegramUserId: string) {
+  const keyboard = [...buildReferralInlineKeyboard()];
+  const imageUrl = process.env.TELEGRAM_REFERRAL_IMAGE_URL?.trim();
+  if (imageUrl) {
+    const caption =
+      REFERRAL_PROGRAM_INTRO.length <= REFERRAL_CAPTION_MAX
+        ? REFERRAL_PROGRAM_INTRO
+        : `${REFERRAL_PROGRAM_INTRO.slice(0, REFERRAL_CAPTION_MAX - 30)}\n\n(продолжение ниже)`;
+    await sendTelegramPhoto(telegramUserId, imageUrl, caption, { inline_keyboard: keyboard });
+    if (REFERRAL_PROGRAM_INTRO.length > REFERRAL_CAPTION_MAX) {
+      const rest = REFERRAL_PROGRAM_INTRO.slice(REFERRAL_CAPTION_MAX - 30);
+      await sendTelegramDirectMessage(telegramUserId, rest, { inline_keyboard: keyboard });
+    }
+  } else {
+    await sendTelegramDirectMessage(telegramUserId, REFERRAL_PROGRAM_INTRO, { inline_keyboard: keyboard });
+  }
+}
+
 function buildMainMenu(isAdmin: boolean) {
-  const keyboard = [[{ text: "Калькулятор проекта", callback_data: "calc:start" }]];
+  const keyboard = [
+    [{ text: "Заработать со мной (рефералка)", callback_data: "referral:info" }],
+    [{ text: "Калькулятор проекта", callback_data: "calc:start" }],
+  ];
   if (isAdmin) keyboard.unshift([{ text: "Сделать пост подписчикам", callback_data: "admin:post:start" }]);
   return keyboard;
 }
@@ -380,7 +425,12 @@ async function handleTelegramWebhook(body: unknown, db: any): Promise<{ ok: true
   const currentState: TelegramFlowState = isValidFlowState(subscriber.flowState) ? subscriber.flowState : "menu";
 
   if (message?.text?.startsWith("/start")) {
+    const parts = message.text.trim().split(/\s+/);
+    const startPayload = parts[1] || "";
     await setSubscriberState(db, userId, "menu", { calc: { features: [] } });
+    if (startPayload.startsWith("ref")) {
+      await sendReferralProgramIntro(userId);
+    }
     await sendTelegramDirectMessage(userId, "Привет! Выберите действие:", {
       inline_keyboard: buildMainMenu(isAdmin),
     });
@@ -403,6 +453,12 @@ async function handleTelegramWebhook(body: unknown, db: any): Promise<{ ok: true
   await answerTelegramCallbackQuery(callback.id);
 
   const data = String(callback.data);
+  if (data === "referral:info") {
+    await sendReferralProgramIntro(userId);
+    await sendTelegramDirectMessage(userId, "Меню:", { inline_keyboard: buildMainMenu(isAdmin) });
+    return { ok: true };
+  }
+
   if (data === "menu:open") {
     await setSubscriberState(db, userId, "menu", { calc: { features: [] } });
     await sendTelegramDirectMessage(userId, "Главное меню:", { inline_keyboard: buildMainMenu(isAdmin) });
@@ -683,7 +739,9 @@ async function handleEstimate(
  */
 async function handleLogin(
   body: unknown
-): Promise<{ success: true; token: string } | { error: string; message: string }> {
+): Promise<
+  { success: true; token: string } | { error: string; message: string; code?: string }
+> {
   const parsedBody = body as { login?: string; password?: string };
 
   if (!parsedBody?.login || !parsedBody?.password) {
@@ -697,15 +755,20 @@ async function handleLogin(
   const envLogin = process.env.ADMIN_LOGIN;
   const envPassword = process.env.ADMIN_PASSWORD;
 
-  const envAuth = () => {
-    if (!envLogin || !envPassword) return null;
-    if (login !== envLogin || password !== envPassword) return null;
+  const issueEnvToken = () => {
     const tokenData = `env-admin:${Date.now()}`;
-    return { success: true as const, token: Buffer.from(tokenData).toString("base64") };
+    return Buffer.from(tokenData).toString("base64");
   };
 
+  // 1) Env credentials first — works even if DB is down (required on Vercel for reliable admin access)
+  if (envLogin && envPassword && login === envLogin && password === envPassword) {
+    console.info("[api] login_success_env", { login });
+    return { success: true, token: issueEnvToken() };
+  }
+
+  // 2) Database users (bcryptjs — no native addon, stable on serverless)
   try {
-    const dbAuthResult = await withDb(async (db) => {
+    const token = await withDb(async (db) => {
       const [user] = await db
         .select()
         .from(users)
@@ -713,47 +776,29 @@ async function handleLogin(
         .limit(1);
 
       if (!user) return null;
-
-      // Load bcrypt lazily to avoid serverless cold-start crashes if native module is unavailable.
-      const bcryptModule = await import("bcrypt").catch(() => null);
-      if (!bcryptModule?.default?.compare) {
-        throw new Error("bcrypt_unavailable");
-      }
-      const isPasswordValid = await bcryptModule.default.compare(password, user.password);
+      const isPasswordValid = await bcryptjs.compare(password, user.password);
       if (!isPasswordValid) return null;
-
-      const tokenData = `${user.id}:${Date.now()}`;
-      return { success: true as const, token: Buffer.from(tokenData).toString("base64") };
+      return Buffer.from(`${user.id}:${Date.now()}`).toString("base64");
     });
 
-    if (dbAuthResult) {
+    if (token) {
       console.info("[api] login_success_db", { login });
-      return dbAuthResult;
+      return { success: true, token };
     }
-
-    const fallback = envAuth();
-    if (fallback) {
-      console.info("[api] login_success_env_fallback", { login });
-      return fallback;
-    }
-
-    console.warn("[api] login_failed", { login, reason: "invalid_credentials" });
-    return {
-      error: "Authentication error",
-      message: "Неверный логин или пароль",
-    };
   } catch (error) {
-    console.error("Error during login, trying env fallback:", error);
-    const fallback = envAuth();
-    if (fallback) {
-      console.info("[api] login_success_env_after_db_error", { login });
-      return fallback;
-    }
+    console.error("[api] login_db_error", error);
     return {
       error: "Service error",
       message: "Сервис авторизации временно недоступен. Попробуйте позже.",
+      code: "db_unavailable",
     };
   }
+
+  console.warn("[api] login_failed", { login, reason: "invalid_credentials" });
+  return {
+    error: "Authentication error",
+    message: "Неверный логин или пароль",
+  };
 }
 
 async function handleHealthCheck() {
@@ -765,6 +810,7 @@ async function handleHealthCheck() {
       hasTelegramBotToken: Boolean(process.env.TELEGRAM_BOT_TOKEN),
       hasTelegramAdminId: Boolean(process.env.TELEGRAM_ADMIN_ID),
       hasTelegramChatId: Boolean(process.env.TELEGRAM_CHAT_ID),
+      hasTelegramReferralImageUrl: Boolean(process.env.TELEGRAM_REFERRAL_IMAGE_URL?.trim()),
     },
     db: {
       connected: false,
@@ -1734,9 +1780,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
       }
     } else {
-      const errorResult = result as { error: string; message: string };
+      const errorResult = result as { error: string; message: string; code?: string };
       const status =
-        errorResult.error === "Validation error" ? 400 : errorResult.error === "Authentication error" ? 401 : 500;
+        errorResult.error === "Validation error"
+          ? 400
+          : errorResult.error === "Authentication error"
+            ? 401
+            : errorResult.error === "Service error"
+              ? 503
+              : 500;
       return sendJson(res, status, errorResult);
     }
   } catch (error) {
