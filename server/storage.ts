@@ -219,6 +219,12 @@ class MemoryStorage implements IStorage {
       estimatedMaxPrice: insertLead.estimatedMaxPrice ?? null,
       estimatedMinDays: insertLead.estimatedMinDays ?? null,
       estimatedMaxDays: insertLead.estimatedMaxDays ?? null,
+      referralCode: insertLead.referralCode ?? null,
+      referrerTelegramId: insertLead.referrerTelegramId ?? null,
+      referrerUsername: insertLead.referrerUsername ?? null,
+      referralSource: insertLead.referralSource ?? null,
+      projectFinalAmount: insertLead.projectFinalAmount ?? null,
+      projectStatus: insertLead.projectStatus ?? "lead",
     };
     this.leads.unshift(lead);
     return lead;

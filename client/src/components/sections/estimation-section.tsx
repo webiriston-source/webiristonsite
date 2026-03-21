@@ -28,6 +28,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { estimationRequestSchema, type EstimationRequest } from "@shared/schema";
+import { resolveReferralPayload } from "@/lib/referral";
 import {
   projectTypes,
   features,
@@ -69,7 +70,10 @@ export function EstimationSection() {
 
   const submitMutation = useMutation({
     mutationFn: async (data: EstimationRequest & { estimation: EstimationResult }) => {
-      return apiRequest("POST", "/api/?action=estimate", data);
+      return apiRequest("POST", "/api/?action=estimate", {
+        ...data,
+        ...resolveReferralPayload(),
+      });
     },
     onSuccess: () => {
       toast({

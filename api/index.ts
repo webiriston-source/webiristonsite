@@ -4,16 +4,28 @@ import {
   users,
   leads,
   projects,
+  referralRewards,
+  telegramSubscribers,
   contactFormSchema,
   estimationRequestSchema,
+  projectStatusOptions,
+  telegramFlowStateOptions,
   type InsertLead,
   type InsertProject,
+  type TelegramFlowState,
 } from "../shared/schema";
 import { eq, desc } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import { randomUUID } from "crypto";
 import { put } from "@vercel/blob";
-import { sendContactToTelegram, sendEstimateToTelegram } from "../serverless/telegram.js";
+import {
+  answerTelegramCallbackQuery,
+  sendContactToTelegram,
+  sendEstimateToTelegram,
+  sendTelegramBroadcast,
+  sendTelegramDirectMessage,
+} from "../serverless/telegram.js";
+import type { ProjectStatus } from "../shared/schema";
 
 /**
  * Parse JSON body from request
@@ -112,6 +124,393 @@ function calculateEstimationScoring(data: {
   return "C";
 }
 
+function normalizeReferralUsername(username?: string | null): string | null {
+  if (!username) return null;
+  return username.startsWith("@") ? username : `@${username}`;
+}
+
+function parsePositiveInt(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return Math.round(value);
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number.parseInt(value.trim(), 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+  return null;
+}
+
+async function syncReferralRewardForLead(db: any, leadId: string) {
+  const [lead] = await db.select().from(leads).where(eq(leads.id, leadId)).limit(1);
+  if (!lead) {
+    return { updated: false, reason: "lead_not_found" as const };
+  }
+
+  if (!lead.referrerTelegramId || !lead.projectFinalAmount) {
+    return { updated: false, reason: "missing_referral_or_amount" as const };
+  }
+
+  const rewardAmount = Math.round(lead.projectFinalAmount * 0.2);
+  const rewardStatus = lead.projectStatus === "paid" || lead.projectStatus === "closed" ? "approved" : "pending";
+
+  const [existing] = await db.select().from(referralRewards).where(eq(referralRewards.leadId, leadId)).limit(1);
+  if (existing) {
+    await db
+      .update(referralRewards)
+      .set({
+        referrerTelegramId: lead.referrerTelegramId,
+        rewardAmount,
+        rewardPercent: 20,
+        status: rewardStatus,
+        updatedAt: new Date(),
+      })
+      .where(eq(referralRewards.leadId, leadId));
+  } else {
+    await db.insert(referralRewards).values({
+      id: randomUUID(),
+      leadId,
+      referrerTelegramId: lead.referrerTelegramId,
+      rewardPercent: 20,
+      rewardAmount,
+      status: rewardStatus,
+    });
+  }
+
+  return {
+    updated: true,
+    rewardAmount,
+    rewardStatus,
+    referrerTelegramId: lead.referrerTelegramId,
+    referrerUsername: lead.referrerUsername,
+    lead,
+  };
+}
+
+type TelegramUserInfo = {
+  id: string;
+  username?: string;
+  first_name?: string;
+  last_name?: string;
+};
+
+type TelegramFlowPayload = {
+  postText?: string;
+  calc?: {
+    projectType?: string;
+    features: string[];
+    designComplexity?: string;
+    urgency?: string;
+  };
+};
+
+const tgProjectTypes: Array<{ id: string; label: string; basePrice: number; baseDays: number }> = [
+  { id: "landing", label: "Лендинг", basePrice: 58000, baseDays: 7 },
+  { id: "website", label: "Корпоративный сайт", basePrice: 154000, baseDays: 21 },
+  { id: "ecommerce", label: "Интернет-магазин", basePrice: 320000, baseDays: 45 },
+  { id: "saas", label: "SaaS-платформа", basePrice: 640000, baseDays: 90 },
+  { id: "webapp", label: "Веб-приложение", basePrice: 448000, baseDays: 60 },
+  { id: "telegram-bot", label: "Telegram-бот", basePrice: 77000, baseDays: 14 },
+  { id: "other", label: "Другое", basePrice: 102000, baseDays: 21 },
+];
+
+const tgFeatures: Array<{ id: string; label: string; price: number; days: number }> = [
+  { id: "auth", label: "Авторизация", price: 45000, days: 5 },
+  { id: "admin", label: "Админ-панель", price: 102000, days: 14 },
+  { id: "payment", label: "Онлайн-оплата", price: 64000, days: 7 },
+  { id: "profile", label: "Личный кабинет", price: 77000, days: 10 },
+  { id: "integrations", label: "Интеграции", price: 58000, days: 7 },
+  { id: "multilang", label: "Мультиязычность", price: 38000, days: 5 },
+];
+
+const tgDesign: Array<{ id: string; label: string; coefficient: number }> = [
+  { id: "basic", label: "Базовый", coefficient: 1.28 },
+  { id: "modern", label: "Современный", coefficient: 1.79 },
+  { id: "premium", label: "Премиум + UX", coefficient: 2.3 },
+];
+
+const tgUrgency: Array<{ id: string; label: string; coefficient: number; daysMultiplier: number }> = [
+  { id: "relaxed", label: "Не срочно", coefficient: 1.22, daysMultiplier: 1.3 },
+  { id: "standard", label: "Стандарт", coefficient: 1.28, daysMultiplier: 1.0 },
+  { id: "urgent", label: "Срочно", coefficient: 2.05, daysMultiplier: 0.6 },
+];
+
+function buildMainMenu(isAdmin: boolean) {
+  const keyboard = [[{ text: "Калькулятор проекта", callback_data: "calc:start" }]];
+  if (isAdmin) keyboard.unshift([{ text: "Сделать пост подписчикам", callback_data: "admin:post:start" }]);
+  return keyboard;
+}
+
+function calculateTelegramEstimate(payload: TelegramFlowPayload["calc"]) {
+  if (!payload?.projectType || !payload.designComplexity || !payload.urgency) return null;
+  const projectType = tgProjectTypes.find((item) => item.id === payload.projectType);
+  const design = tgDesign.find((item) => item.id === payload.designComplexity);
+  const urgency = tgUrgency.find((item) => item.id === payload.urgency);
+  if (!projectType || !design || !urgency) return null;
+
+  let totalPrice = projectType.basePrice;
+  let totalDays = projectType.baseDays;
+  for (const featureId of payload.features || []) {
+    const feature = tgFeatures.find((item) => item.id === featureId);
+    if (feature) {
+      totalPrice += feature.price;
+      totalDays += feature.days;
+    }
+  }
+
+  totalPrice = totalPrice * design.coefficient * urgency.coefficient;
+  totalDays = Math.ceil(totalDays * urgency.daysMultiplier);
+  return {
+    minPrice: Math.round(totalPrice * 0.8),
+    maxPrice: Math.round(totalPrice * 1.2),
+    minDays: Math.max(1, Math.round(totalDays * 0.85)),
+    maxDays: Math.round(totalDays * 1.15),
+  };
+}
+
+function formatEstimateSummary(payload: TelegramFlowPayload["calc"]) {
+  const estimate = calculateTelegramEstimate(payload);
+  if (!estimate) return "Не удалось рассчитать оценку.";
+  const projectType = tgProjectTypes.find((item) => item.id === payload?.projectType)?.label || "—";
+  const design = tgDesign.find((item) => item.id === payload?.designComplexity)?.label || "—";
+  const urgency = tgUrgency.find((item) => item.id === payload?.urgency)?.label || "—";
+  const featureNames =
+    payload?.features?.map((id) => tgFeatures.find((item) => item.id === id)?.label || id).join(", ") || "Без дополнительных функций";
+  const formatPrice = (value: number) => `${new Intl.NumberFormat("ru-RU").format(value)} ₽`;
+  return [
+    "📊 Предварительная оценка проекта",
+    "",
+    `Тип: ${projectType}`,
+    `Функции: ${featureNames}`,
+    `Дизайн: ${design}`,
+    `Срочность: ${urgency}`,
+    "",
+    `💰 Стоимость: ${formatPrice(estimate.minPrice)} — ${formatPrice(estimate.maxPrice)}`,
+    `⏱ Срок: ${estimate.minDays} — ${estimate.maxDays} дней`,
+    "",
+    "Эту оценку можно переслать заинтересованному лицу.",
+    "Финальная цена уточняется после брифа.",
+  ].join("\n");
+}
+
+function parseFlowPayload(raw: string | null): TelegramFlowPayload {
+  if (!raw) return { calc: { features: [] } };
+  try {
+    const parsed = JSON.parse(raw) as TelegramFlowPayload;
+    return {
+      postText: parsed.postText,
+      calc: {
+        features: parsed.calc?.features || [],
+        projectType: parsed.calc?.projectType,
+        designComplexity: parsed.calc?.designComplexity,
+        urgency: parsed.calc?.urgency,
+      },
+    };
+  } catch {
+    return { calc: { features: [] } };
+  }
+}
+
+function isValidFlowState(state: string): state is TelegramFlowState {
+  return (telegramFlowStateOptions as readonly string[]).includes(state);
+}
+
+async function upsertTelegramSubscriber(db: any, user: TelegramUserInfo) {
+  const adminId = process.env.TELEGRAM_ADMIN_ID;
+  const isAdmin = adminId ? String(adminId) === String(user.id) : false;
+  const [existing] = await db
+    .select()
+    .from(telegramSubscribers)
+    .where(eq(telegramSubscribers.telegramUserId, String(user.id)))
+    .limit(1);
+
+  if (existing) {
+    await db
+      .update(telegramSubscribers)
+      .set({
+        username: user.username || null,
+        firstName: user.first_name || null,
+        lastName: user.last_name || null,
+        isActive: "true",
+        isAdmin: isAdmin ? "true" : existing.isAdmin,
+        lastInteractionAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(telegramSubscribers.telegramUserId, String(user.id)));
+    return { ...existing, isAdmin: isAdmin ? "true" : existing.isAdmin };
+  }
+
+  const [created] = await db
+    .insert(telegramSubscribers)
+    .values({
+      id: randomUUID(),
+      telegramUserId: String(user.id),
+      username: user.username || null,
+      firstName: user.first_name || null,
+      lastName: user.last_name || null,
+      isActive: "true",
+      isAdmin: isAdmin ? "true" : "false",
+      flowState: "menu",
+      flowPayload: JSON.stringify({ calc: { features: [] } }),
+      lastInteractionAt: new Date(),
+    })
+    .returning();
+  return created;
+}
+
+async function setSubscriberState(db: any, telegramUserId: string, state: TelegramFlowState, payload: TelegramFlowPayload) {
+  await db
+    .update(telegramSubscribers)
+    .set({
+      flowState: state,
+      flowPayload: JSON.stringify(payload),
+      lastInteractionAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(telegramSubscribers.telegramUserId, telegramUserId));
+}
+
+async function handleTelegramWebhook(body: unknown, db: any): Promise<{ ok: true } | { error: string; message: string }> {
+  const update = body as any;
+  const callback = update?.callback_query;
+  const message = update?.message;
+  const from: TelegramUserInfo | undefined = callback?.from || message?.from;
+  if (!from?.id) return { ok: true };
+
+  const subscriber = await upsertTelegramSubscriber(db, from);
+  const userId = String(from.id);
+  const isAdmin = subscriber.isAdmin === "true";
+  const currentPayload = parseFlowPayload(subscriber.flowPayload);
+  const currentState: TelegramFlowState = isValidFlowState(subscriber.flowState) ? subscriber.flowState : "menu";
+
+  if (message?.text?.startsWith("/start")) {
+    await setSubscriberState(db, userId, "menu", { calc: { features: [] } });
+    await sendTelegramDirectMessage(userId, "Привет! Выберите действие:", {
+      inline_keyboard: buildMainMenu(isAdmin),
+    });
+    return { ok: true };
+  }
+
+  if (message?.text && currentState === "compose_post_waiting_text" && isAdmin) {
+    const payload: TelegramFlowPayload = { ...currentPayload, postText: message.text };
+    await setSubscriberState(db, userId, "compose_post_confirm", payload);
+    await sendTelegramDirectMessage(userId, `Пост готов к отправке:\n\n${message.text}`, {
+      inline_keyboard: [
+        [{ text: "Отправить подписчикам", callback_data: "admin:post:confirm" }],
+        [{ text: "Отмена", callback_data: "menu:open" }],
+      ],
+    });
+    return { ok: true };
+  }
+
+  if (!callback?.id || !callback?.data) return { ok: true };
+  await answerTelegramCallbackQuery(callback.id);
+
+  const data = String(callback.data);
+  if (data === "menu:open") {
+    await setSubscriberState(db, userId, "menu", { calc: { features: [] } });
+    await sendTelegramDirectMessage(userId, "Главное меню:", { inline_keyboard: buildMainMenu(isAdmin) });
+    return { ok: true };
+  }
+
+  if (data === "admin:post:start" && isAdmin) {
+    await setSubscriberState(db, userId, "compose_post_waiting_text", currentPayload);
+    await sendTelegramDirectMessage(userId, "Отправьте текст поста одним сообщением.");
+    return { ok: true };
+  }
+
+  if (data === "admin:post:confirm" && isAdmin) {
+    const text = currentPayload.postText;
+    if (!text) return { ok: true };
+    const recipients = await db
+      .select()
+      .from(telegramSubscribers)
+      .where(eq(telegramSubscribers.isActive, "true"));
+    const subscriberIds = recipients
+      .filter((row: any) => row.telegramUserId !== userId)
+      .map((row: any) => String(row.telegramUserId));
+    const stats = await sendTelegramBroadcast(subscriberIds, text);
+    for (const line of stats.errors) {
+      if (line.includes("bot was blocked") || line.includes("chat not found") || line.includes("user is deactivated")) {
+        const targetId = line.split(":")[0];
+        if (targetId) {
+          await db
+            .update(telegramSubscribers)
+            .set({ isActive: "false", updatedAt: new Date() })
+            .where(eq(telegramSubscribers.telegramUserId, targetId));
+        }
+      }
+    }
+    await setSubscriberState(db, userId, "menu", { calc: { features: [] } });
+    await sendTelegramDirectMessage(
+      userId,
+      `Рассылка завершена.\nУспешно: ${stats.success}\nОшибки: ${stats.failed}\nЗаблокировали бота: ${stats.blocked}`,
+      { inline_keyboard: buildMainMenu(true) }
+    );
+    return { ok: true };
+  }
+
+  if (data === "calc:start") {
+    await setSubscriberState(db, userId, "calc_project_type", { calc: { features: [] } });
+    await sendTelegramDirectMessage(userId, "Шаг 1/4. Выберите тип проекта:", {
+      inline_keyboard: tgProjectTypes.map((item) => [{ text: item.label, callback_data: `calc:type:${item.id}` }]),
+    });
+    return { ok: true };
+  }
+
+  if (data.startsWith("calc:type:")) {
+    const projectType = data.replace("calc:type:", "");
+    const payload: TelegramFlowPayload = { calc: { features: [], projectType } };
+    await setSubscriberState(db, userId, "calc_features", payload);
+    const featureRows = tgFeatures.map((item) => [{ text: item.label, callback_data: `calc:feature:${item.id}` }]);
+    featureRows.push([{ text: "Далее", callback_data: "calc:features:done" }]);
+    await sendTelegramDirectMessage(userId, "Шаг 2/4. Выберите нужные функции (можно несколько):", {
+      inline_keyboard: featureRows,
+    });
+    return { ok: true };
+  }
+
+  if (data.startsWith("calc:feature:")) {
+    const featureId = data.replace("calc:feature:", "");
+    const selected = new Set(currentPayload.calc?.features || []);
+    if (selected.has(featureId)) selected.delete(featureId);
+    else selected.add(featureId);
+    const payload: TelegramFlowPayload = { calc: { ...(currentPayload.calc || { features: [] }), features: Array.from(selected) } };
+    await setSubscriberState(db, userId, "calc_features", payload);
+    await sendTelegramDirectMessage(userId, `Функций выбрано: ${payload.calc?.features.length || 0}. Можно выбрать еще или нажать "Далее".`, {
+      inline_keyboard: [[{ text: "Далее", callback_data: "calc:features:done" }]],
+    });
+    return { ok: true };
+  }
+
+  if (data === "calc:features:done") {
+    await setSubscriberState(db, userId, "calc_design", currentPayload);
+    await sendTelegramDirectMessage(userId, "Шаг 3/4. Выберите сложность дизайна:", {
+      inline_keyboard: tgDesign.map((item) => [{ text: item.label, callback_data: `calc:design:${item.id}` }]),
+    });
+    return { ok: true };
+  }
+
+  if (data.startsWith("calc:design:")) {
+    const designComplexity = data.replace("calc:design:", "");
+    const payload: TelegramFlowPayload = { calc: { ...(currentPayload.calc || { features: [] }), designComplexity } };
+    await setSubscriberState(db, userId, "calc_urgency", payload);
+    await sendTelegramDirectMessage(userId, "Шаг 4/4. Выберите срочность:", {
+      inline_keyboard: tgUrgency.map((item) => [{ text: item.label, callback_data: `calc:urgency:${item.id}` }]),
+    });
+    return { ok: true };
+  }
+
+  if (data.startsWith("calc:urgency:")) {
+    const urgency = data.replace("calc:urgency:", "");
+    const payload: TelegramFlowPayload = { calc: { ...(currentPayload.calc || { features: [] }), urgency } };
+    await setSubscriberState(db, userId, "calc_result", payload);
+    await sendTelegramDirectMessage(userId, formatEstimateSummary(payload.calc), {
+      inline_keyboard: [[{ text: "Новый расчет", callback_data: "calc:start" }], [{ text: "Меню", callback_data: "menu:open" }]],
+    });
+    return { ok: true };
+  }
+
+  return { ok: true };
+}
+
 /**
  * Handle contact form submission
  */
@@ -128,7 +527,7 @@ async function handleContact(
     };
   }
 
-  const { name, email, message } = parseResult.data;
+  const { name, email, message, referralCode, referrerTelegramId, referrerUsername, referralSource } = parseResult.data;
   const scoring = calculateContactScoring(message);
 
   try {
@@ -142,6 +541,11 @@ async function handleContact(
         name,
         email,
         message,
+        referralCode: referralCode || null,
+        referrerTelegramId: referrerTelegramId || null,
+        referrerUsername: normalizeReferralUsername(referrerUsername),
+        referralSource: referralSource || null,
+        projectStatus: "lead",
       })
       .returning();
 
@@ -151,6 +555,9 @@ async function handleContact(
       email,
       message,
       scoring,
+      referralCode: referralCode || undefined,
+      referrerTelegramId: referrerTelegramId || undefined,
+      referrerUsername: normalizeReferralUsername(referrerUsername) || undefined,
     }).catch((error) => {
       console.error("Failed to send Telegram notification:", error);
     });
@@ -225,6 +632,11 @@ async function handleEstimate(
       estimatedMaxPrice: estimation.maxPrice,
       estimatedMinDays: estimation.minDays,
       estimatedMaxDays: estimation.maxDays,
+      referralCode: data.referralCode || null,
+      referrerTelegramId: data.referrerTelegramId || null,
+      referrerUsername: normalizeReferralUsername(data.referrerUsername),
+      referralSource: data.referralSource || null,
+      projectStatus: "lead",
     };
 
     const lead = await db
@@ -250,6 +662,9 @@ async function handleEstimate(
         minDays: estimation.minDays,
         maxDays: estimation.maxDays,
       },
+      referralCode: data.referralCode || undefined,
+      referrerTelegramId: data.referrerTelegramId || undefined,
+      referrerUsername: normalizeReferralUsername(data.referrerUsername) || undefined,
     }).catch((error) => {
       console.error("Failed to send Telegram notification:", error);
     });
@@ -425,6 +840,7 @@ async function handleGetAnalytics(
 ): Promise<{ success: true; data: unknown } | { error: string; message: string }> {
   try {
     const allLeads = (await (db as any).select().from(leads)) as Lead[];
+    const allRewards = await (db as any).select().from(referralRewards);
 
     const now = new Date();
     const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -486,6 +902,14 @@ async function handleGetAnalytics(
       avgMinPrice,
       avgMaxPrice,
       projectTypeCounts,
+      referral: {
+        leadsWithReferral: allLeads.filter((lead: Lead) => !!lead.referrerTelegramId || !!lead.referralCode).length,
+        rewardsTotal: allRewards.length,
+        rewardsApproved: allRewards.filter((reward: any) => reward.status === "approved").length,
+        rewardsPaid: allRewards.filter((reward: any) => reward.status === "paid").length,
+        rewardsPending: allRewards.filter((reward: any) => reward.status === "pending").length,
+        totalRewardAmount: allRewards.reduce((sum: number, reward: any) => sum + (reward.rewardAmount || 0), 0),
+      },
     };
 
     return { success: true, data: analytics };
@@ -538,6 +962,76 @@ async function handleUpdateLeadStatus(
   }
 }
 
+async function handleUpdateProjectLifecycle(
+  body: unknown,
+  db: any
+): Promise<{ success: true; rewardCreated: boolean } | { error: string; message: string }> {
+  const parsedBody = body as {
+    id?: string;
+    projectStatus?: ProjectStatus;
+    projectFinalAmount?: unknown;
+  };
+
+  if (!parsedBody?.id || !parsedBody?.projectStatus) {
+    return {
+      error: "Validation error",
+      message: "id and projectStatus are required",
+    };
+  }
+
+  if (!projectStatusOptions.includes(parsedBody.projectStatus)) {
+    return {
+      error: "Validation error",
+      message: `Invalid projectStatus. Must be one of: ${projectStatusOptions.join(", ")}`,
+    };
+  }
+
+  const updates: Record<string, unknown> = { projectStatus: parsedBody.projectStatus, updatedAt: new Date() };
+  if (parsedBody.projectFinalAmount !== undefined) {
+    const parsedAmount = parsePositiveInt(parsedBody.projectFinalAmount);
+    if (parsedAmount === null) {
+      return {
+        error: "Validation error",
+        message: "projectFinalAmount must be a positive integer",
+      };
+    }
+    updates.projectFinalAmount = parsedAmount;
+  }
+
+  try {
+    await db.update(leads).set(updates).where(eq(leads.id, parsedBody.id));
+    const rewardResult = await syncReferralRewardForLead(db, parsedBody.id);
+
+    if (
+      rewardResult.updated &&
+      (parsedBody.projectStatus === "paid" || parsedBody.projectStatus === "closed") &&
+      rewardResult.rewardStatus === "approved" &&
+      rewardResult.referrerTelegramId
+    ) {
+      const usernamePart = rewardResult.referrerUsername ? ` (${rewardResult.referrerUsername})` : "";
+      const text = [
+        "🎉 Реферальный бонус подтвержден",
+        "",
+        `Ваш клиент по заявке #${parsedBody.id.slice(0, 8)} успешно оплатил и принял проект.`,
+        `Сумма выплаты: ${new Intl.NumberFormat("ru-RU").format(rewardResult.rewardAmount)} ₽`,
+        `Ставка: 20%`,
+        "",
+        "Статус: approved (готово к выплате)",
+        `Реферер: ${rewardResult.referrerTelegramId}${usernamePart}`,
+      ].join("\n");
+      await sendTelegramDirectMessage(rewardResult.referrerTelegramId, text);
+    }
+
+    return { success: true, rewardCreated: rewardResult.updated };
+  } catch (error) {
+    console.error("Failed to update project lifecycle:", error);
+    return {
+      error: "Database error",
+      message: "Не удалось обновить жизненный цикл проекта",
+    };
+  }
+}
+
 /**
  * Handle get unread count (GET request)
  */
@@ -556,6 +1050,21 @@ async function handleGetUnreadCount(
     return {
       error: "Database error",
       message: "Не удалось получить количество непрочитанных заявок",
+    };
+  }
+}
+
+async function handleGetReferralRewards(
+  db: any
+): Promise<{ success: true; data: unknown[] } | { error: string; message: string }> {
+  try {
+    const rewards = await db.select().from(referralRewards).orderBy(desc(referralRewards.createdAt));
+    return { success: true, data: rewards };
+  } catch (error) {
+    console.error("Failed to fetch referral rewards:", error);
+    return {
+      error: "Database error",
+      message: "Не удалось получить список реферальных бонусов",
     };
   }
 }
@@ -964,7 +1473,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!action || typeof action !== "string") {
     return sendJson(res, 400, {
       error: "Missing action",
-      message: "Query parameter 'action' is required. Valid actions: contact, estimate, login, getContacts, getEstimates, getRequests, getAnalytics, getUnreadCount, getProjects, updateLeadStatus, markAsRead, addProject, uploadImage",
+          message: "Query parameter 'action' is required. Valid actions: contact, estimate, login, getContacts, getEstimates, getRequests, getAnalytics, getUnreadCount, getProjects, getReferralRewards, updateLeadStatus, updateProjectLifecycle, markAsRead, addProject, uploadImage, telegramWebhook",
     });
   }
 
@@ -1011,10 +1520,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           result = await withDb(async (db) => handleGetProjects(db));
           break;
         }
+        case "getReferralRewards": {
+          result = await withDb(async (db) => handleGetReferralRewards(db));
+          break;
+        }
         default: {
           return sendJson(res, 400, {
             error: "Invalid action",
-            message: `Unknown GET action: ${action}. Valid GET actions: getContacts, getEstimates, getRequests, getAnalytics, getUnreadCount, getProjects`,
+            message: `Unknown GET action: ${action}. Valid GET actions: getContacts, getEstimates, getRequests, getAnalytics, getUnreadCount, getProjects, getReferralRewards`,
           });
         }
       }
@@ -1069,6 +1582,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           result = await withDb(async (db) => handleMarkAsRead(body, db));
           break;
         }
+        case "updateProjectLifecycle": {
+          result = await withDb(async (db) => handleUpdateProjectLifecycle(body, db));
+          break;
+        }
         case "updateProject": {
           result = await withDb(async (db) => handleUpdateProject(body, db));
           break;
@@ -1076,7 +1593,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         default: {
           return sendJson(res, 400, {
             error: "Invalid action",
-            message: `Unknown PATCH action: ${action}. Valid PATCH actions: updateLeadStatus, markAsRead, updateProject`,
+            message: `Unknown PATCH action: ${action}. Valid PATCH actions: updateLeadStatus, updateProjectLifecycle, markAsRead, updateProject`,
           });
         }
       }
@@ -1090,7 +1607,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // Handle POST requests (contact, estimate, login, addProject, uploadImage)
+    // Handle POST requests (contact, estimate, login, addProject, uploadImage, telegramWebhook)
     const body = await parseJsonBody(req);
 
     // Special handling for uploadImage (base64 JSON)
@@ -1106,6 +1623,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           message: errorResult.message,
         });
       }
+    }
+
+    if (action === "telegramWebhook") {
+      const webhookResult = await withDb(async (db) => handleTelegramWebhook(body, db));
+      if ("ok" in webhookResult && webhookResult.ok) {
+        return sendJson(res, 200, { ok: true });
+      }
+      return sendJson(res, 500, webhookResult);
     }
 
     // Route to appropriate handler using on-demand DB connection
@@ -1131,7 +1656,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       default: {
         return sendJson(res, 400, {
           error: "Invalid action",
-          message: `Unknown POST action: ${action}. Valid POST actions: contact, estimate, login, addProject, uploadImage`,
+          message: `Unknown POST action: ${action}. Valid POST actions: contact, estimate, login, addProject, uploadImage, telegramWebhook`,
         });
       }
     }

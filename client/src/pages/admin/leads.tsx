@@ -53,6 +53,7 @@ export default function AdminLeads() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [scoringFilter, setScoringFilter] = useState<string>("all");
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [finalAmountDraft, setFinalAmountDraft] = useState<string>("");
   const { toast } = useToast();
 
   const { data: leads, isLoading } = useQuery<Lead[]>({
@@ -78,6 +79,33 @@ export default function AdminLeads() {
     },
   });
 
+  const updateProjectLifecycleMutation = useMutation({
+    mutationFn: async ({
+      id,
+      projectStatus,
+      projectFinalAmount,
+    }: {
+      id: string;
+      projectStatus: string;
+      projectFinalAmount?: number;
+    }) => {
+      const response = await apiRequest("PATCH", "/api/?action=updateProjectLifecycle", {
+        id,
+        projectStatus,
+        projectFinalAmount,
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/?action=getRequests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/?action=getAnalytics"] });
+      toast({ title: "Этап проекта обновлён" });
+    },
+    onError: () => {
+      toast({ title: "Ошибка", description: "Не удалось обновить этап проекта", variant: "destructive" });
+    },
+  });
+
   const filteredLeads = leads?.filter((lead) => {
     const matchesSearch =
       lead.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -99,6 +127,14 @@ export default function AdminLeads() {
         .catch(() => {
           // Silent fail
         });
+    }
+  }, [selectedLead]);
+
+  useEffect(() => {
+    if (selectedLead?.projectFinalAmount) {
+      setFinalAmountDraft(String(selectedLead.projectFinalAmount));
+    } else {
+      setFinalAmountDraft("");
     }
   }, [selectedLead]);
 
@@ -260,7 +296,12 @@ export default function AdminLeads() {
 
       <Dialog 
         open={!!selectedLead} 
-        onOpenChange={() => setSelectedLead(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedLead(null);
+            setFinalAmountDraft("");
+          }
+        }}
       >
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -374,6 +415,86 @@ export default function AdminLeads() {
                       </div>
                     </div>
                   )}
+
+                  <div className="border-t pt-4 space-y-3">
+                    <p className="font-medium">Реферальная программа</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Код реферала</p>
+                        <p className="font-medium">{selectedLead.referralCode || "—"}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Реферер</p>
+                        <p className="font-medium">
+                          {selectedLead.referrerUsername || selectedLead.referrerTelegramId || "—"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-sm text-muted-foreground mb-1">Этап проекта</p>
+                        <Select
+                          value={selectedLead.projectStatus || "lead"}
+                          onValueChange={(projectStatus) =>
+                            updateProjectLifecycleMutation.mutate({
+                              id: selectedLead.id,
+                              projectStatus,
+                            })
+                          }
+                        >
+                          <SelectTrigger data-testid={`select-project-status-${selectedLead.id}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="lead">lead</SelectItem>
+                            <SelectItem value="in_progress">in_progress</SelectItem>
+                            <SelectItem value="delivered">delivered</SelectItem>
+                            <SelectItem value="accepted">accepted</SelectItem>
+                            <SelectItem value="paid">paid</SelectItem>
+                            <SelectItem value="closed">closed</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground mb-1">Финальная сумма (₽)</p>
+                        <div className="flex gap-2">
+                          <Input
+                            value={finalAmountDraft}
+                            onChange={(e) => setFinalAmountDraft(e.target.value)}
+                            placeholder={selectedLead.projectFinalAmount?.toString() || "150000"}
+                            data-testid={`input-final-amount-${selectedLead.id}`}
+                          />
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() => {
+                              const amount = Number.parseInt(finalAmountDraft, 10);
+                              if (!Number.isFinite(amount) || amount <= 0) {
+                                toast({
+                                  title: "Проверьте сумму",
+                                  description: "Введите положительное число",
+                                  variant: "destructive",
+                                });
+                                return;
+                              }
+                              updateProjectLifecycleMutation.mutate({
+                                id: selectedLead.id,
+                                projectStatus: selectedLead.projectStatus || "lead",
+                                projectFinalAmount: amount,
+                              });
+                            }}
+                          >
+                            Сохранить
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                    {selectedLead.projectFinalAmount && (
+                      <p className="text-sm text-muted-foreground">
+                        Расчёт бонуса 20%: <span className="font-medium">{formatPrice(Math.round(selectedLead.projectFinalAmount * 0.2))}</span>
+                      </p>
+                    )}
+                  </div>
                 </>
               )}
 

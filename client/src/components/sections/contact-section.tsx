@@ -19,9 +19,11 @@ import { contactFormSchema, type ContactFormData } from "@shared/schema";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { resolveReferralPayload } from "@/lib/referral";
 
 const socialLinks = [
   { icon: SiTelegram, href: "https://t.me/iristonweb", label: "Telegram" },
+  { icon: SiTelegram, href: "https://t.me/iristonwebbot", label: "Telegram Bot" },
 ];
 
 function RobotIllustration({ focusedField }: { focusedField: string | null }) {
@@ -181,7 +183,10 @@ export function ContactSection() {
 
   const mutation = useMutation({
     mutationFn: async (data: ContactFormData) => {
-      const response = await apiRequest("POST", "/api/?action=contact", data);
+      const response = await apiRequest("POST", "/api/?action=contact", {
+        ...data,
+        ...resolveReferralPayload(),
+      });
       return response;
     },
     onSuccess: () => {
