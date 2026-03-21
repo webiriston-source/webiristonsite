@@ -139,6 +139,19 @@ function parsePositiveInt(value: unknown): number | null {
   return null;
 }
 
+/** Vercel/UI often store env values with surrounding quotes — strip for reliable compare */
+function normalizeEnvSecret(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  let s = value.trim();
+  if (
+    (s.startsWith('"') && s.endsWith('"') && s.length >= 2) ||
+    (s.startsWith("'") && s.endsWith("'") && s.length >= 2)
+  ) {
+    s = s.slice(1, -1).trim();
+  }
+  return s;
+}
+
 async function syncReferralRewardForLead(db: any, leadId: string) {
   const [lead] = await db.select().from(leads).where(eq(leads.id, leadId)).limit(1);
   if (!lead) {
@@ -411,115 +424,226 @@ async function setSubscriberState(db: any, telegramUserId: string, state: Telegr
     .where(eq(telegramSubscribers.telegramUserId, telegramUserId));
 }
 
-async function handleTelegramWebhook(body: unknown, db: any): Promise<{ ok: true } | { error: string; message: string }> {
+async function withTelegramDbOptional<T>(fn: (db: any) => Promise<T>): Promise<{ ok: true; value: T } | { ok: false }> {
+  try {
+    const value = await withDb(fn);
+    return { ok: true, value };
+  } catch (error) {
+    console.error("[telegramWebhook] DB operation failed:", error);
+    return { ok: false };
+  }
+}
+
+function telegramUserIsAdminEnv(user: TelegramUserInfo): boolean {
+  const adminId = process.env.TELEGRAM_ADMIN_ID;
+  return adminId ? String(adminId) === String(user.id) : false;
+}
+
+async function notifyTelegramDbLimited(userId: string) {
+  try {
+    await sendTelegramDirectMessage(
+      userId,
+      "Сервис временно ограничен. Попробуйте позже или нажмите /start.",
+      { inline_keyboard: [[{ text: "Меню", callback_data: "menu:open" }]] }
+    );
+  } catch (e) {
+    console.error("[telegramWebhook] notify db limited failed:", e);
+  }
+}
+
+async function handleTelegramWebhook(body: unknown): Promise<{ ok: true } | { error: string; message: string }> {
   const update = body as any;
   const callback = update?.callback_query;
   const message = update?.message;
   const from: TelegramUserInfo | undefined = callback?.from || message?.from;
   if (!from?.id) return { ok: true };
 
-  const subscriber = await upsertTelegramSubscriber(db, from);
   const userId = String(from.id);
-  const isAdmin = subscriber.isAdmin === "true";
-  const currentPayload = parseFlowPayload(subscriber.flowPayload);
-  const currentState: TelegramFlowState = isValidFlowState(subscriber.flowState) ? subscriber.flowState : "menu";
+  const isAdminEnv = telegramUserIsAdminEnv(from);
 
+  // /start: user-facing sends first (works without DB); then best-effort persist
   if (message?.text?.startsWith("/start")) {
     const parts = message.text.trim().split(/\s+/);
     const startPayload = parts[1] || "";
-    await setSubscriberState(db, userId, "menu", { calc: { features: [] } });
-    if (startPayload.startsWith("ref")) {
-      await sendReferralProgramIntro(userId);
+    try {
+      if (startPayload.startsWith("ref")) {
+        await sendReferralProgramIntro(userId);
+      }
+      await sendTelegramDirectMessage(userId, "Привет! Выберите действие:", {
+        inline_keyboard: buildMainMenu(isAdminEnv),
+      });
+    } catch (e) {
+      console.error("[telegramWebhook] /start send failed:", e);
     }
-    await sendTelegramDirectMessage(userId, "Привет! Выберите действие:", {
-      inline_keyboard: buildMainMenu(isAdmin),
+    await withTelegramDbOptional(async (db) => {
+      await upsertTelegramSubscriber(db, from);
+      await setSubscriberState(db, userId, "menu", { calc: { features: [] } });
     });
     return { ok: true };
   }
 
+  const subResult = await withTelegramDbOptional(async (db) => upsertTelegramSubscriber(db, from));
+  const subscriber = subResult.ok ? subResult.value : null;
+  const isAdmin = subscriber ? subscriber.isAdmin === "true" : isAdminEnv;
+  const currentPayload = subscriber ? parseFlowPayload(subscriber.flowPayload) : parseFlowPayload(null);
+  const currentState: TelegramFlowState =
+    subscriber && isValidFlowState(subscriber.flowState) ? subscriber.flowState : "menu";
+
   if (message?.text && currentState === "compose_post_waiting_text" && isAdmin) {
-    const payload: TelegramFlowPayload = { ...currentPayload, postText: message.text };
-    await setSubscriberState(db, userId, "compose_post_confirm", payload);
-    await sendTelegramDirectMessage(userId, `Пост готов к отправке:\n\n${message.text}`, {
-      inline_keyboard: [
-        [{ text: "Отправить подписчикам", callback_data: "admin:post:confirm" }],
-        [{ text: "Отмена", callback_data: "menu:open" }],
-      ],
+    const setOk = await withTelegramDbOptional(async (db) => {
+      const payload: TelegramFlowPayload = { ...currentPayload, postText: message.text };
+      await setSubscriberState(db, userId, "compose_post_confirm", payload);
     });
+    if (!setOk.ok) {
+      await notifyTelegramDbLimited(userId);
+      return { ok: true };
+    }
+    try {
+      await sendTelegramDirectMessage(userId, `Пост готов к отправке:\n\n${message.text}`, {
+        inline_keyboard: [
+          [{ text: "Отправить подписчикам", callback_data: "admin:post:confirm" }],
+          [{ text: "Отмена", callback_data: "menu:open" }],
+        ],
+      });
+    } catch (e) {
+      console.error("[telegramWebhook] compose confirm send failed:", e);
+    }
     return { ok: true };
   }
 
   if (!callback?.id || !callback?.data) return { ok: true };
-  await answerTelegramCallbackQuery(callback.id);
+  try {
+    await answerTelegramCallbackQuery(callback.id);
+  } catch (e) {
+    console.error("[telegramWebhook] answerCallbackQuery failed:", e);
+  }
 
   const data = String(callback.data);
   if (data === "referral:info") {
-    await sendReferralProgramIntro(userId);
-    await sendTelegramDirectMessage(userId, "Меню:", { inline_keyboard: buildMainMenu(isAdmin) });
+    try {
+      await sendReferralProgramIntro(userId);
+      await sendTelegramDirectMessage(userId, "Меню:", { inline_keyboard: buildMainMenu(isAdmin) });
+    } catch (e) {
+      console.error("[telegramWebhook] referral:info send failed:", e);
+    }
+    await withTelegramDbOptional(async (db) => {
+      await upsertTelegramSubscriber(db, from);
+    });
     return { ok: true };
   }
 
   if (data === "menu:open") {
-    await setSubscriberState(db, userId, "menu", { calc: { features: [] } });
-    await sendTelegramDirectMessage(userId, "Главное меню:", { inline_keyboard: buildMainMenu(isAdmin) });
+    await withTelegramDbOptional(async (db) => {
+      await setSubscriberState(db, userId, "menu", { calc: { features: [] } });
+    });
+    try {
+      await sendTelegramDirectMessage(userId, "Главное меню:", { inline_keyboard: buildMainMenu(isAdmin) });
+    } catch (e) {
+      console.error("[telegramWebhook] menu:open send failed:", e);
+    }
     return { ok: true };
   }
 
   if (data === "admin:post:start" && isAdmin) {
-    await setSubscriberState(db, userId, "compose_post_waiting_text", currentPayload);
-    await sendTelegramDirectMessage(userId, "Отправьте текст поста одним сообщением.");
+    const setOk = await withTelegramDbOptional(async (db) => {
+      await setSubscriberState(db, userId, "compose_post_waiting_text", currentPayload);
+    });
+    if (!setOk.ok) {
+      await notifyTelegramDbLimited(userId);
+      return { ok: true };
+    }
+    try {
+      await sendTelegramDirectMessage(userId, "Отправьте текст поста одним сообщением.");
+    } catch (e) {
+      console.error("[telegramWebhook] admin:post:start send failed:", e);
+    }
     return { ok: true };
   }
 
   if (data === "admin:post:confirm" && isAdmin) {
     const text = currentPayload.postText;
     if (!text) return { ok: true };
-    const recipients = await db
-      .select()
-      .from(telegramSubscribers)
-      .where(eq(telegramSubscribers.isActive, "true"));
-    const subscriberIds = recipients
-      .filter((row: any) => row.telegramUserId !== userId)
-      .map((row: any) => String(row.telegramUserId));
-    const stats = await sendTelegramBroadcast(subscriberIds, text);
-    for (const line of stats.errors) {
-      if (line.includes("bot was blocked") || line.includes("chat not found") || line.includes("user is deactivated")) {
-        const targetId = line.split(":")[0];
-        if (targetId) {
-          await db
-            .update(telegramSubscribers)
-            .set({ isActive: "false", updatedAt: new Date() })
-            .where(eq(telegramSubscribers.telegramUserId, targetId));
+    const broadcastResult = await withTelegramDbOptional(async (db) => {
+      const recipients = await db
+        .select()
+        .from(telegramSubscribers)
+        .where(eq(telegramSubscribers.isActive, "true"));
+      const subscriberIds = recipients
+        .filter((row: any) => row.telegramUserId !== userId)
+        .map((row: any) => String(row.telegramUserId));
+      const stats = await sendTelegramBroadcast(subscriberIds, text);
+      for (const line of stats.errors) {
+        if (line.includes("bot was blocked") || line.includes("chat not found") || line.includes("user is deactivated")) {
+          const targetId = line.split(":")[0];
+          if (targetId) {
+            await db
+              .update(telegramSubscribers)
+              .set({ isActive: "false", updatedAt: new Date() })
+              .where(eq(telegramSubscribers.telegramUserId, targetId));
+          }
         }
       }
+      await setSubscriberState(db, userId, "menu", { calc: { features: [] } });
+      return stats;
+    });
+    if (!broadcastResult.ok) {
+      await notifyTelegramDbLimited(userId);
+      return { ok: true };
     }
-    await setSubscriberState(db, userId, "menu", { calc: { features: [] } });
-    await sendTelegramDirectMessage(
-      userId,
-      `Рассылка завершена.\nУспешно: ${stats.success}\nОшибки: ${stats.failed}\nЗаблокировали бота: ${stats.blocked}`,
-      { inline_keyboard: buildMainMenu(true) }
-    );
+    const stats = broadcastResult.value;
+    try {
+      await sendTelegramDirectMessage(
+        userId,
+        `Рассылка завершена.\nУспешно: ${stats.success}\nОшибки: ${stats.failed}\nЗаблокировали бота: ${stats.blocked}`,
+        { inline_keyboard: buildMainMenu(true) }
+      );
+    } catch (e) {
+      console.error("[telegramWebhook] broadcast summary send failed:", e);
+    }
     return { ok: true };
   }
 
+  const runCalcStep = async (fn: (db: any) => Promise<void>, send: () => Promise<unknown>) => {
+    const ok = await withTelegramDbOptional(fn);
+    if (!ok.ok) {
+      await notifyTelegramDbLimited(userId);
+      return { ok: true as const };
+    }
+    try {
+      await send();
+    } catch (e) {
+      console.error("[telegramWebhook] calc step send failed:", e);
+    }
+    return { ok: true as const };
+  };
+
   if (data === "calc:start") {
-    await setSubscriberState(db, userId, "calc_project_type", { calc: { features: [] } });
-    await sendTelegramDirectMessage(userId, "Шаг 1/4. Выберите тип проекта:", {
-      inline_keyboard: tgProjectTypes.map((item) => [{ text: item.label, callback_data: `calc:type:${item.id}` }]),
-    });
-    return { ok: true };
+    return runCalcStep(
+      async (db) => {
+        await setSubscriberState(db, userId, "calc_project_type", { calc: { features: [] } });
+      },
+      async () =>
+        sendTelegramDirectMessage(userId, "Шаг 1/4. Выберите тип проекта:", {
+          inline_keyboard: tgProjectTypes.map((item) => [{ text: item.label, callback_data: `calc:type:${item.id}` }]),
+        })
+    );
   }
 
   if (data.startsWith("calc:type:")) {
     const projectType = data.replace("calc:type:", "");
     const payload: TelegramFlowPayload = { calc: { features: [], projectType } };
-    await setSubscriberState(db, userId, "calc_features", payload);
-    const featureRows = tgFeatures.map((item) => [{ text: item.label, callback_data: `calc:feature:${item.id}` }]);
-    featureRows.push([{ text: "Далее", callback_data: "calc:features:done" }]);
-    await sendTelegramDirectMessage(userId, "Шаг 2/4. Выберите нужные функции (можно несколько):", {
-      inline_keyboard: featureRows,
-    });
-    return { ok: true };
+    return runCalcStep(
+      async (db) => {
+        await setSubscriberState(db, userId, "calc_features", payload);
+      },
+      async () => {
+        const featureRows = tgFeatures.map((item) => [{ text: item.label, callback_data: `calc:feature:${item.id}` }]);
+        featureRows.push([{ text: "Далее", callback_data: "calc:features:done" }]);
+        await sendTelegramDirectMessage(userId, "Шаг 2/4. Выберите нужные функции (можно несколько):", {
+          inline_keyboard: featureRows,
+        });
+      }
+    );
   }
 
   if (data.startsWith("calc:feature:")) {
@@ -527,40 +651,67 @@ async function handleTelegramWebhook(body: unknown, db: any): Promise<{ ok: true
     const selected = new Set(currentPayload.calc?.features || []);
     if (selected.has(featureId)) selected.delete(featureId);
     else selected.add(featureId);
-    const payload: TelegramFlowPayload = { calc: { ...(currentPayload.calc || { features: [] }), features: Array.from(selected) } };
-    await setSubscriberState(db, userId, "calc_features", payload);
-    await sendTelegramDirectMessage(userId, `Функций выбрано: ${payload.calc?.features.length || 0}. Можно выбрать еще или нажать "Далее".`, {
-      inline_keyboard: [[{ text: "Далее", callback_data: "calc:features:done" }]],
-    });
-    return { ok: true };
+    const payload: TelegramFlowPayload = {
+      calc: { ...(currentPayload.calc || { features: [] }), features: Array.from(selected) },
+    };
+    return runCalcStep(
+      async (db) => {
+        await setSubscriberState(db, userId, "calc_features", payload);
+      },
+      async () =>
+        sendTelegramDirectMessage(
+          userId,
+          `Функций выбрано: ${payload.calc?.features.length || 0}. Можно выбрать еще или нажать "Далее".`,
+          { inline_keyboard: [[{ text: "Далее", callback_data: "calc:features:done" }]] }
+        )
+    );
   }
 
   if (data === "calc:features:done") {
-    await setSubscriberState(db, userId, "calc_design", currentPayload);
-    await sendTelegramDirectMessage(userId, "Шаг 3/4. Выберите сложность дизайна:", {
-      inline_keyboard: tgDesign.map((item) => [{ text: item.label, callback_data: `calc:design:${item.id}` }]),
-    });
-    return { ok: true };
+    return runCalcStep(
+      async (db) => {
+        await setSubscriberState(db, userId, "calc_design", currentPayload);
+      },
+      async () =>
+        sendTelegramDirectMessage(userId, "Шаг 3/4. Выберите сложность дизайна:", {
+          inline_keyboard: tgDesign.map((item) => [{ text: item.label, callback_data: `calc:design:${item.id}` }]),
+        })
+    );
   }
 
   if (data.startsWith("calc:design:")) {
     const designComplexity = data.replace("calc:design:", "");
-    const payload: TelegramFlowPayload = { calc: { ...(currentPayload.calc || { features: [] }), designComplexity } };
-    await setSubscriberState(db, userId, "calc_urgency", payload);
-    await sendTelegramDirectMessage(userId, "Шаг 4/4. Выберите срочность:", {
-      inline_keyboard: tgUrgency.map((item) => [{ text: item.label, callback_data: `calc:urgency:${item.id}` }]),
-    });
-    return { ok: true };
+    const payload: TelegramFlowPayload = {
+      calc: { ...(currentPayload.calc || { features: [] }), designComplexity },
+    };
+    return runCalcStep(
+      async (db) => {
+        await setSubscriberState(db, userId, "calc_urgency", payload);
+      },
+      async () =>
+        sendTelegramDirectMessage(userId, "Шаг 4/4. Выберите срочность:", {
+          inline_keyboard: tgUrgency.map((item) => [{ text: item.label, callback_data: `calc:urgency:${item.id}` }]),
+        })
+    );
   }
 
   if (data.startsWith("calc:urgency:")) {
     const urgency = data.replace("calc:urgency:", "");
-    const payload: TelegramFlowPayload = { calc: { ...(currentPayload.calc || { features: [] }), urgency } };
-    await setSubscriberState(db, userId, "calc_result", payload);
-    await sendTelegramDirectMessage(userId, formatEstimateSummary(payload.calc), {
-      inline_keyboard: [[{ text: "Новый расчет", callback_data: "calc:start" }], [{ text: "Меню", callback_data: "menu:open" }]],
-    });
-    return { ok: true };
+    const payload: TelegramFlowPayload = {
+      calc: { ...(currentPayload.calc || { features: [] }), urgency },
+    };
+    return runCalcStep(
+      async (db) => {
+        await setSubscriberState(db, userId, "calc_result", payload);
+      },
+      async () =>
+        sendTelegramDirectMessage(userId, formatEstimateSummary(payload.calc), {
+          inline_keyboard: [
+            [{ text: "Новый расчет", callback_data: "calc:start" }],
+            [{ text: "Меню", callback_data: "menu:open" }],
+          ],
+        })
+    );
   }
 
   return { ok: true };
@@ -742,63 +893,73 @@ async function handleLogin(
 ): Promise<
   { success: true; token: string } | { error: string; message: string; code?: string }
 > {
-  const parsedBody = body as { login?: string; password?: string };
-
-  if (!parsedBody?.login || !parsedBody?.password) {
-    return {
-      error: "Validation error",
-      message: "Login and password are required",
-    };
-  }
-
-  const { login, password } = parsedBody;
-  const envLogin = process.env.ADMIN_LOGIN;
-  const envPassword = process.env.ADMIN_PASSWORD;
-
-  const issueEnvToken = () => {
-    const tokenData = `env-admin:${Date.now()}`;
-    return Buffer.from(tokenData).toString("base64");
-  };
-
-  // 1) Env credentials first — works even if DB is down (required on Vercel for reliable admin access)
-  if (envLogin && envPassword && login === envLogin && password === envPassword) {
-    console.info("[api] login_success_env", { login });
-    return { success: true, token: issueEnvToken() };
-  }
-
-  // 2) Database users (bcryptjs — no native addon, stable on serverless)
   try {
-    const token = await withDb(async (db) => {
-      const [user] = await db
-        .select()
-        .from(users)
-        .where(eq(users.username, login))
-        .limit(1);
+    const parsedBody = body as { login?: string; password?: string };
 
-      if (!user) return null;
-      const isPasswordValid = await bcryptjs.compare(password, user.password);
-      if (!isPasswordValid) return null;
-      return Buffer.from(`${user.id}:${Date.now()}`).toString("base64");
-    });
-
-    if (token) {
-      console.info("[api] login_success_db", { login });
-      return { success: true, token };
+    if (!parsedBody?.login || !parsedBody?.password) {
+      return {
+        error: "Validation error",
+        message: "Login and password are required",
+      };
     }
+
+    const login = String(parsedBody.login).trim();
+    const password = String(parsedBody.password).trim();
+    const envLogin = normalizeEnvSecret(process.env.ADMIN_LOGIN);
+    const envPassword = normalizeEnvSecret(process.env.ADMIN_PASSWORD);
+
+    const issueEnvToken = () => {
+      const tokenData = `env-admin:${Date.now()}`;
+      return Buffer.from(tokenData).toString("base64");
+    };
+
+    // 1) Env credentials first — works even if DB is down (required on Vercel for reliable admin access)
+    if (envLogin && envPassword && login === envLogin && password === envPassword) {
+      console.info("[api] login_success_env", { login });
+      return { success: true, token: issueEnvToken() };
+    }
+
+    // 2) Database users (bcryptjs — no native addon, stable on serverless)
+    try {
+      const token = await withDb(async (db) => {
+        const [user] = await db
+          .select()
+          .from(users)
+          .where(eq(users.username, login))
+          .limit(1);
+
+        if (!user) return null;
+        const isPasswordValid = await bcryptjs.compare(password, user.password);
+        if (!isPasswordValid) return null;
+        return Buffer.from(`${user.id}:${Date.now()}`).toString("base64");
+      });
+
+      if (token) {
+        console.info("[api] login_success_db", { login });
+        return { success: true, token };
+      }
+    } catch (error) {
+      console.error("[api] login_db_error", error);
+      return {
+        error: "Service error",
+        message: "Сервис авторизации временно недоступен. Попробуйте позже.",
+        code: "db_unavailable",
+      };
+    }
+
+    console.warn("[api] login_failed", { login, reason: "invalid_credentials" });
+    return {
+      error: "Authentication error",
+      message: "Неверный логин или пароль",
+    };
   } catch (error) {
-    console.error("[api] login_db_error", error);
+    console.error("[api] login_unexpected", error);
     return {
       error: "Service error",
       message: "Сервис авторизации временно недоступен. Попробуйте позже.",
-      code: "db_unavailable",
+      code: "login_unexpected",
     };
   }
-
-  console.warn("[api] login_failed", { login, reason: "invalid_credentials" });
-  return {
-    error: "Authentication error",
-    message: "Неверный логин или пароль",
-  };
 }
 
 async function handleHealthCheck() {
@@ -806,7 +967,9 @@ async function handleHealthCheck() {
     ok: true,
     env: {
       hasDatabaseUrl: Boolean(process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.DATABASE_URL_UNPOOLED),
-      hasAdminEnvCredentials: Boolean(process.env.ADMIN_LOGIN && process.env.ADMIN_PASSWORD),
+      hasAdminEnvCredentials: Boolean(
+        normalizeEnvSecret(process.env.ADMIN_LOGIN) && normalizeEnvSecret(process.env.ADMIN_PASSWORD)
+      ),
       hasTelegramBotToken: Boolean(process.env.TELEGRAM_BOT_TOKEN),
       hasTelegramAdminId: Boolean(process.env.TELEGRAM_ADMIN_ID),
       hasTelegramChatId: Boolean(process.env.TELEGRAM_CHAT_ID),
@@ -1722,11 +1885,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (action === "telegramWebhook") {
-      const webhookResult = await withDb(async (db) => handleTelegramWebhook(body, db));
-      if ("ok" in webhookResult && webhookResult.ok) {
-        return sendJson(res, 200, { ok: true });
+      try {
+        const webhookResult = await handleTelegramWebhook(body);
+        if ("ok" in webhookResult && webhookResult.ok) {
+          return sendJson(res, 200, { ok: true });
+        }
+        console.error("[telegramWebhook] unexpected result:", webhookResult);
+      } catch (e) {
+        console.error("[telegramWebhook] fatal:", e);
       }
-      return sendJson(res, 500, webhookResult);
+      return sendJson(res, 200, { ok: true });
     }
 
     // Route to appropriate handler using on-demand DB connection
