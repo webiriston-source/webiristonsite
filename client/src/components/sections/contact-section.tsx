@@ -30,9 +30,33 @@ const TELEGRAM_BOT_USERNAME = normalizeTelegramUsername(
   import.meta.env.VITE_TELEGRAM_BOT_USERNAME as string | undefined,
   "iristonweb"
 );
+const TELEGRAM_PROFILE_USERNAME = normalizeTelegramUsername(
+  import.meta.env.VITE_TELEGRAM_PROFILE_USERNAME as string | undefined,
+  "iristonweb"
+);
+const DEBUG_INGEST_URL = "http://127.0.0.1:7345/ingest/2ba65ac8-085c-4d8d-ac0f-441802abfac3";
+const DEBUG_SESSION_ID = "26449a";
+
+function debugLog(hypothesisId: string, location: string, message: string, data: Record<string, unknown>) {
+  // #region agent log
+  fetch(DEBUG_INGEST_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": DEBUG_SESSION_ID },
+    body: JSON.stringify({
+      sessionId: DEBUG_SESSION_ID,
+      runId: "pre-fix",
+      hypothesisId,
+      location,
+      message,
+      data,
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
+}
 
 const socialLinks = [
-  { icon: SiTelegram, href: "https://t.me/iristonweb", label: "Telegram" },
+  { icon: SiTelegram, href: `https://t.me/${TELEGRAM_PROFILE_USERNAME}`, label: "Telegram" },
   { icon: SiTelegram, href: `https://t.me/${TELEGRAM_BOT_USERNAME}`, label: "Telegram Bot" },
 ];
 
@@ -225,6 +249,18 @@ export function ContactSection() {
     }
   }, [isSuccess]);
 
+  useEffect(() => {
+    // #region agent log
+    debugLog("H6", "contact-section.tsx:init", "telegram_urls_resolved", {
+      profileUrl: `https://t.me/${TELEGRAM_PROFILE_USERNAME}`,
+      botUrl: `https://t.me/${TELEGRAM_BOT_USERNAME}`,
+      referralUrl: referralBotDeepLink,
+      profileEnvExists: Boolean(import.meta.env.VITE_TELEGRAM_PROFILE_USERNAME),
+      botEnvExists: Boolean(import.meta.env.VITE_TELEGRAM_BOT_USERNAME),
+    });
+    // #endregion
+  }, []);
+
   const onSubmit = (data: ContactFormData) => {
     mutation.mutate(data);
   };
@@ -383,6 +419,14 @@ export function ContactSection() {
                       href={href}
                       target="_blank"
                       rel="noopener noreferrer"
+                      onClick={() => {
+                        // #region agent log
+                        debugLog("H7", "contact-section.tsx:socialClick", "telegram_social_click", {
+                          label,
+                          href,
+                        });
+                        // #endregion
+                      }}
                     >
                       <Icon className="w-4 h-4 mr-2" />
                       {label}
@@ -405,7 +449,18 @@ export function ContactSection() {
               </ul>
               <div className="pt-1">
                 <Button asChild variant="default" size="sm" data-testid="link-referral-bot">
-                  <a href={referralBotDeepLink} target="_blank" rel="noopener noreferrer">
+                  <a
+                    href={referralBotDeepLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => {
+                      // #region agent log
+                      debugLog("H8", "contact-section.tsx:referralClick", "telegram_referral_click", {
+                        href: referralBotDeepLink,
+                      });
+                      // #endregion
+                    }}
+                  >
                     <SiTelegram className="w-4 h-4 mr-2" />
                     Заработать со мной — в боте
                   </a>

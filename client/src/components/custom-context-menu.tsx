@@ -7,9 +7,32 @@ import {
 import { SiTelegram } from "react-icons/si";
 import { useTheme } from "@/components/theme-provider";
 
+const TELEGRAM_PROFILE_USERNAME = ((import.meta.env.VITE_TELEGRAM_PROFILE_USERNAME as string | undefined) || "iristonweb")
+  .trim()
+  .replace(/^@+/, "");
 const TELEGRAM_BOT_USERNAME = ((import.meta.env.VITE_TELEGRAM_BOT_USERNAME as string | undefined) || "iristonweb")
   .trim()
   .replace(/^@+/, "");
+const DEBUG_INGEST_URL = "http://127.0.0.1:7345/ingest/2ba65ac8-085c-4d8d-ac0f-441802abfac3";
+const DEBUG_SESSION_ID = "26449a";
+
+function debugLog(hypothesisId: string, location: string, message: string, data: Record<string, unknown>) {
+  // #region agent log
+  fetch(DEBUG_INGEST_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": DEBUG_SESSION_ID },
+    body: JSON.stringify({
+      sessionId: DEBUG_SESSION_ID,
+      runId: "pre-fix",
+      hypothesisId,
+      location,
+      message,
+      data,
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
+}
 
 interface MenuPosition {
   x: number;
@@ -122,7 +145,14 @@ export function CustomContextMenu() {
       label: "Telegram",
       icon: <SiTelegram className="w-4 h-4" />,
       action: () => {
-        window.open(`https://t.me/${TELEGRAM_BOT_USERNAME || "iristonweb"}`, "_blank");
+        const href = `https://t.me/${TELEGRAM_PROFILE_USERNAME || "iristonweb"}`;
+        // #region agent log
+        debugLog("H10", "custom-context-menu.tsx:telegramAction", "context_telegram_click", {
+          href,
+          botUsernameAlsoSet: TELEGRAM_BOT_USERNAME || null,
+        });
+        // #endregion
+        window.open(href, "_blank");
         setIsOpen(false);
       },
     },
