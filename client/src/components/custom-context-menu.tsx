@@ -7,6 +7,10 @@ import {
 import { SiTelegram } from "react-icons/si";
 import { useTheme } from "@/components/theme-provider";
 
+const TELEGRAM_BOT_USERNAME = ((import.meta.env.VITE_TELEGRAM_BOT_USERNAME as string | undefined) || "iristonweb")
+  .trim()
+  .replace(/^@+/, "");
+
 interface MenuPosition {
   x: number;
   y: number;
@@ -118,7 +122,7 @@ export function CustomContextMenu() {
       label: "Telegram",
       icon: <SiTelegram className="w-4 h-4" />,
       action: () => {
-        window.open("https://t.me/iristonweb", "_blank");
+        window.open(`https://t.me/${TELEGRAM_BOT_USERNAME || "iristonweb"}`, "_blank");
         setIsOpen(false);
       },
     },

@@ -5,6 +5,9 @@ import { Button } from "@/components/ui/button";
 import { SiTelegram } from "react-icons/si";
 
 const roles = ["Fullstack Разработчик", "Архитектор решений", "Создатель продуктов"];
+const TELEGRAM_BOT_USERNAME = ((import.meta.env.VITE_TELEGRAM_BOT_USERNAME as string | undefined) || "iristonweb")
+  .trim()
+  .replace(/^@+/, "");
 
 export function HeroSection() {
   const [currentRoleIndex, setCurrentRoleIndex] = useState(0);
@@ -132,7 +135,7 @@ export function HeroSection() {
               data-cursor-hover
             >
               <a
-                href="https://t.me/iristonweb"
+                href={`https://t.me/${TELEGRAM_BOT_USERNAME || "iristonweb"}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="Telegram"

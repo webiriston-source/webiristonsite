@@ -59,6 +59,16 @@ type TelegramApiResult<T = unknown> = {
   data?: T;
 };
 
+type TelegramWebhookInfo = {
+  url?: string;
+  has_custom_certificate?: boolean;
+  pending_update_count?: number;
+  last_error_date?: number;
+  last_error_message?: string;
+  max_connections?: number;
+  ip_address?: string;
+};
+
 export async function sendContactToTelegram(data: {
   name: string;
   email: string;
@@ -292,4 +302,20 @@ export async function sendTelegramBroadcast(
   }
 
   return { success, failed, blocked, errors };
+}
+
+export async function getTelegramBotProfile(): Promise<TelegramApiResult<{ id: number; username?: string; first_name?: string }>> {
+  return telegramApiRequest("getMe", {});
+}
+
+export async function getTelegramWebhookInfo(): Promise<TelegramApiResult<TelegramWebhookInfo>> {
+  return telegramApiRequest<TelegramWebhookInfo>("getWebhookInfo", {});
+}
+
+export async function setTelegramWebhook(url: string): Promise<TelegramApiResult<true>> {
+  return telegramApiRequest<true>("setWebhook", {
+    url,
+    allowed_updates: ["message", "callback_query"],
+    drop_pending_updates: false,
+  });
 }

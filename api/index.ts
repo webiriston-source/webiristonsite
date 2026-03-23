@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "../shared/vercel-types";
-import { withDb } from "../shared/db";
+import { withDb, isDatabaseConfigured } from "../shared/db";
 import {
   users,
   leads,
@@ -155,6 +155,25 @@ function normalizeEnvSecret(value: string | undefined): string | undefined {
   return s;
 }
 
+function normalizeTelegramUsername(value: string | undefined): string | null {
+  const normalized = value?.trim().replace(/^@+/, "");
+  return normalized ? normalized : null;
+}
+
+function buildExpectedTelegramWebhookUrl(host: string | undefined): string | null {
+  const explicit = normalizeEnvSecret(process.env.TELEGRAM_WEBHOOK_URL);
+  if (explicit) return explicit;
+
+  const apiBase = normalizeEnvSecret(process.env.VITE_API_BASE);
+  if (apiBase) return `${apiBase.replace(/\/+$/, "")}/api/?action=telegramWebhook`;
+
+  if (host) {
+    return `https://${host}/api/?action=telegramWebhook`;
+  }
+
+  return null;
+}
+
 async function syncReferralRewardForLead(db: any, leadId: string) {
   const [lead] = await db.select().from(leads).where(eq(leads.id, leadId)).limit(1);
   if (!lead) {
@@ -271,7 +290,7 @@ const REFERRAL_PROGRAM_INTRO = `Реферальная программа
 
 const REFERRAL_CAPTION_MAX = 1000;
 
-async function sendReferralProgramIntro(telegramUserId: string) {
+async function sendReferralProgramIntro(telegramUserId: string): Promise<{ ok: boolean; reason?: string }> {
   const tg = await loadTelegram();
   const keyboard = [...buildReferralInlineKeyboard()];
   const imageUrl = process.env.TELEGRAM_REFERRAL_IMAGE_URL?.trim();
@@ -280,13 +299,16 @@ async function sendReferralProgramIntro(telegramUserId: string) {
       REFERRAL_PROGRAM_INTRO.length <= REFERRAL_CAPTION_MAX
         ? REFERRAL_PROGRAM_INTRO
         : `${REFERRAL_PROGRAM_INTRO.slice(0, REFERRAL_CAPTION_MAX - 30)}\n\n(продолжение ниже)`;
-    await tg.sendTelegramPhoto(telegramUserId, imageUrl, caption, { inline_keyboard: keyboard });
+    const photoSend = await tg.sendTelegramPhoto(telegramUserId, imageUrl, caption, { inline_keyboard: keyboard });
+    if (!photoSend.ok) return photoSend;
     if (REFERRAL_PROGRAM_INTRO.length > REFERRAL_CAPTION_MAX) {
       const rest = REFERRAL_PROGRAM_INTRO.slice(REFERRAL_CAPTION_MAX - 30);
-      await tg.sendTelegramDirectMessage(telegramUserId, rest, { inline_keyboard: keyboard });
+      const restSend = await tg.sendTelegramDirectMessage(telegramUserId, rest, { inline_keyboard: keyboard });
+      if (!restSend.ok) return restSend;
     }
+    return photoSend;
   } else {
-    await tg.sendTelegramDirectMessage(telegramUserId, REFERRAL_PROGRAM_INTRO, { inline_keyboard: keyboard });
+    return tg.sendTelegramDirectMessage(telegramUserId, REFERRAL_PROGRAM_INTRO, { inline_keyboard: keyboard });
   }
 }
 
@@ -479,11 +501,17 @@ async function handleTelegramWebhook(body: unknown): Promise<{ ok: true } | { er
     const startPayload = parts[1] || "";
     try {
       if (startPayload.startsWith("ref")) {
-        await sendReferralProgramIntro(userId);
+        const referralSend = await sendReferralProgramIntro(userId);
+        if (!referralSend.ok) {
+          console.error("[telegramWebhook] /start referral intro send failed:", referralSend.reason);
+        }
       }
-      await tg.sendTelegramDirectMessage(userId, "Привет! Выберите действие:", {
+      const menuSend = await tg.sendTelegramDirectMessage(userId, "Привет! Выберите действие:", {
         inline_keyboard: buildMainMenu(isAdminEnv),
       });
+      if (!menuSend.ok) {
+        console.error("[telegramWebhook] /start menu send failed:", menuSend.reason);
+      }
     } catch (e) {
       console.error("[telegramWebhook] /start send failed:", e);
     }
@@ -965,6 +993,22 @@ async function handleLogin(
       return { success: true, token: issueEnvToken() };
     }
 
+    const envAuthConfigured = Boolean(envLogin && envPassword);
+    if (!isDatabaseConfigured()) {
+      if (!envAuthConfigured) {
+        return {
+          error: "Configuration error",
+          message:
+            "Вход не настроен на сервере: задайте ADMIN_LOGIN и ADMIN_PASSWORD в Vercel (Production) или подключите базу данных (DATABASE_URL / POSTGRES_URL).",
+          code: "auth_not_configured",
+        };
+      }
+      return {
+        error: "Authentication error",
+        message: "Неверный логин или пароль",
+      };
+    }
+
     // 2) Database users (bcryptjs — no native addon, stable on serverless)
     try {
       const token = await withDb(async (db) => {
@@ -1014,7 +1058,7 @@ async function handleLogin(
   }
 }
 
-async function handleHealthCheck() {
+async function handleHealthCheck(host: string | undefined) {
   const payload: Record<string, unknown> = {
     ok: true,
     env: {
@@ -1026,6 +1070,12 @@ async function handleHealthCheck() {
       hasTelegramAdminId: Boolean(process.env.TELEGRAM_ADMIN_ID),
       hasTelegramChatId: Boolean(process.env.TELEGRAM_CHAT_ID),
       hasTelegramReferralImageUrl: Boolean(process.env.TELEGRAM_REFERRAL_IMAGE_URL?.trim()),
+      hasTelegramWebhookUrl: Boolean(normalizeEnvSecret(process.env.TELEGRAM_WEBHOOK_URL)),
+      hasTelegramBotUsername: Boolean(normalizeTelegramUsername(process.env.VITE_TELEGRAM_BOT_USERNAME)),
+    },
+    telegram: {
+      expectedWebhookUrl: buildExpectedTelegramWebhookUrl(host),
+      botUsernameFromEnv: normalizeTelegramUsername(process.env.VITE_TELEGRAM_BOT_USERNAME),
     },
     db: {
       connected: false,
@@ -1044,7 +1094,88 @@ async function handleHealthCheck() {
     };
   }
 
+  try {
+    const tg = await loadTelegram();
+    const [profile, webhookInfo] = await Promise.all([tg.getTelegramBotProfile(), tg.getTelegramWebhookInfo()]);
+    payload.telegram = {
+      ...(payload.telegram as Record<string, unknown>),
+      botApiProfileOk: profile.ok,
+      botUsernameFromApi: profile.data?.username || null,
+      webhookInfoOk: webhookInfo.ok,
+      webhookCurrentUrl: webhookInfo.data?.url || null,
+      webhookPendingUpdates: webhookInfo.data?.pending_update_count ?? null,
+      webhookLastError: webhookInfo.data?.last_error_message || null,
+      webhookMatchesExpected: Boolean(
+        webhookInfo.data?.url &&
+          (payload.telegram as Record<string, unknown>).expectedWebhookUrl &&
+          String(webhookInfo.data?.url) === String((payload.telegram as Record<string, unknown>).expectedWebhookUrl)
+      ),
+      botUsernameMatchesEnv: Boolean(
+        profile.data?.username &&
+          (payload.telegram as Record<string, unknown>).botUsernameFromEnv &&
+          String(profile.data.username) === String((payload.telegram as Record<string, unknown>).botUsernameFromEnv)
+      ),
+      telegramApiReason: profile.reason || webhookInfo.reason || null,
+    };
+  } catch (error) {
+    payload.telegram = {
+      ...(payload.telegram as Record<string, unknown>),
+      botApiProfileOk: false,
+      webhookInfoOk: false,
+      telegramApiReason: error instanceof Error ? error.message : "telegram_health_exception",
+    };
+  }
+
   return payload;
+}
+
+async function handleTelegramWebhookSync(
+  host: string | undefined
+): Promise<{ success: true; data: unknown } | { error: string; message: string }> {
+  const expectedWebhookUrl = buildExpectedTelegramWebhookUrl(host);
+  if (!expectedWebhookUrl) {
+    return {
+      error: "Configuration error",
+      message: "Не удалось определить ожидаемый webhook URL. Задайте TELEGRAM_WEBHOOK_URL или VITE_API_BASE.",
+    };
+  }
+
+  try {
+    const tg = await loadTelegram();
+    const before = await tg.getTelegramWebhookInfo();
+    if (!before.ok) {
+      return {
+        error: "Telegram API error",
+        message: `Не удалось получить webhook info: ${before.reason || "unknown_error"}`,
+      };
+    }
+
+    const setResult = await tg.setTelegramWebhook(expectedWebhookUrl);
+    if (!setResult.ok) {
+      return {
+        error: "Telegram API error",
+        message: `Не удалось установить webhook: ${setResult.reason || "unknown_error"}`,
+      };
+    }
+
+    const after = await tg.getTelegramWebhookInfo();
+    return {
+      success: true,
+      data: {
+        expectedWebhookUrl,
+        beforeUrl: before.data?.url || null,
+        afterUrl: after.data?.url || null,
+        webhookMatchesExpected: after.data?.url === expectedWebhookUrl,
+        pendingUpdates: after.data?.pending_update_count ?? null,
+        lastError: after.data?.last_error_message || null,
+      },
+    };
+  } catch (error) {
+    return {
+      error: "Service error",
+      message: error instanceof Error ? error.message : "Не удалось синхронизировать webhook",
+    };
+  }
 }
 
 /**
@@ -1782,7 +1913,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!action || typeof action !== "string") {
     return sendJson(res, 400, {
       error: "Missing action",
-          message: "Query parameter 'action' is required. Valid actions: contact, estimate, login, health, getContacts, getEstimates, getRequests, getAnalytics, getUnreadCount, getProjects, getReferralRewards, updateLeadStatus, updateProjectLifecycle, markAsRead, addProject, uploadImage, telegramWebhook",
+          message: "Query parameter 'action' is required. Valid actions: contact, estimate, login, health, telegramWebhookSync, getContacts, getEstimates, getRequests, getAnalytics, getUnreadCount, getProjects, getReferralRewards, updateLeadStatus, updateProjectLifecycle, markAsRead, addProject, uploadImage, telegramWebhook",
     });
   }
 
@@ -1834,13 +1965,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           break;
         }
         case "health": {
-          const health = await handleHealthCheck();
+          const health = await handleHealthCheck(req.headers.host);
           return sendJson(res, 200, health);
+        }
+        case "telegramWebhookSync": {
+          const result = await handleTelegramWebhookSync(req.headers.host);
+          if ("success" in result && result.success) {
+            return sendJson(res, 200, result.data);
+          }
+          return sendJson(res, 500, result);
         }
         default: {
           return sendJson(res, 400, {
             error: "Invalid action",
-            message: `Unknown GET action: ${action}. Valid GET actions: health, getContacts, getEstimates, getRequests, getAnalytics, getUnreadCount, getProjects, getReferralRewards`,
+            message: `Unknown GET action: ${action}. Valid GET actions: health, telegramWebhookSync, getContacts, getEstimates, getRequests, getAnalytics, getUnreadCount, getProjects, getReferralRewards`,
           });
         }
       }
@@ -1940,9 +2078,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             ? 400
             : errorResult.error === "Authentication error"
               ? 401
-              : errorResult.error === "Service error"
-                ? 503
-                : 500;
+              : errorResult.error === "Configuration error"
+                ? 422
+                : errorResult.error === "Service error"
+                  ? 503
+                  : 500;
         return sendJson(res, status, errorResult);
       } catch (e) {
         console.error("[api] login_fatal", e);

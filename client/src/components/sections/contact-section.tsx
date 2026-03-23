@@ -21,11 +21,19 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { resolveReferralPayload } from "@/lib/referral";
 
-const TELEGRAM_BOT_USERNAME = "iristonwebbot";
+function normalizeTelegramUsername(value: string | undefined, fallback: string): string {
+  const normalized = (value || fallback).trim().replace(/^@+/, "");
+  return normalized || fallback;
+}
+
+const TELEGRAM_BOT_USERNAME = normalizeTelegramUsername(
+  import.meta.env.VITE_TELEGRAM_BOT_USERNAME as string | undefined,
+  "iristonweb"
+);
 
 const socialLinks = [
   { icon: SiTelegram, href: "https://t.me/iristonweb", label: "Telegram" },
-  { icon: SiTelegram, href: "https://t.me/iristonwebbot", label: "Telegram Bot" },
+  { icon: SiTelegram, href: `https://t.me/${TELEGRAM_BOT_USERNAME}`, label: "Telegram Bot" },
 ];
 
 const referralBotDeepLink = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=ref_contacts`;

@@ -10,6 +10,17 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Lock } from "lucide-react";
 
+function parseLoginErrorPayload(error: Error): { message?: string; code?: string } | null {
+  const raw = error.message || "";
+  const start = raw.indexOf("{");
+  if (start === -1) return null;
+  try {
+    return JSON.parse(raw.slice(start)) as { message?: string; code?: string };
+  } catch {
+    return null;
+  }
+}
+
 export default function AdminLogin() {
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
@@ -45,6 +56,15 @@ export default function AdminLogin() {
     },
     onError: (error: Error) => {
       const message = error.message || "";
+      const payload = parseLoginErrorPayload(error);
+      if (payload?.code === "auth_not_configured" && payload.message) {
+        toast({
+          title: "Ошибка входа",
+          description: payload.message,
+          variant: "destructive",
+        });
+        return;
+      }
       const isUnauthorized = message.includes("401");
       const isServerError =
         message.includes("500") || message.includes("503") || message.includes("Service error");
