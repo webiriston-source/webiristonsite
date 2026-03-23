@@ -22,6 +22,48 @@ import { calculateEstimate, type EstimationResult } from "../shared/estimation";
 
 type TelegramServerless = typeof import("../serverless/telegram.js");
 let telegramModulePromise: Promise<TelegramServerless> | null = null;
+const DEBUG_INGEST_URL = "http://127.0.0.1:7345/ingest/2ba65ac8-085c-4d8d-ac0f-441802abfac3";
+const DEBUG_SESSION_ID = "26449a";
+
+async function debugLog(
+  runId: string,
+  hypothesisId: string,
+  location: string,
+  message: string,
+  data: Record<string, unknown>
+) {
+  // #region agent log
+  fetch(DEBUG_INGEST_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": DEBUG_SESSION_ID },
+    body: JSON.stringify({
+      sessionId: DEBUG_SESSION_ID,
+      runId,
+      hypothesisId,
+      location,
+      message,
+      data,
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
+}
+
+// #region agent log
+fetch(DEBUG_INGEST_URL, {
+  method: "POST",
+  headers: { "Content-Type": "application/json", "X-Debug-Session-Id": DEBUG_SESSION_ID },
+  body: JSON.stringify({
+    sessionId: DEBUG_SESSION_ID,
+    runId: "pre-fix",
+    hypothesisId: "H1",
+    location: "api/index.ts:module",
+    message: "module_loaded",
+    data: { nodeEnv: process.env.NODE_ENV || null, hasVercel: Boolean(process.env.VERCEL) },
+    timestamp: Date.now(),
+  }),
+}).catch(() => {});
+// #endregion
 
 /** Lazy-load Telegram helpers so a bad import / missing file does not break login and other routes */
 function loadTelegram(): Promise<TelegramServerless> {
@@ -45,7 +87,14 @@ async function parseJsonBody<T>(req: VercelRequest): Promise<T | null> {
       raw += typeof chunk === "string" ? chunk : chunk.toString("utf8");
     }
     return raw ? JSON.parse(raw) : null;
-  } catch {
+  } catch (error) {
+    // #region agent log
+    void debugLog("pre-fix", "H2", "api/index.ts:parseJsonBody", "parse_json_failed", {
+      url: req.url || null,
+      method: req.method || null,
+      error: error instanceof Error ? error.message : "unknown_parse_error",
+    });
+    // #endregion
     return null;
   }
 }
@@ -479,6 +528,12 @@ async function notifyTelegramDbLimited(userId: string) {
 }
 
 async function handleTelegramWebhook(body: unknown): Promise<{ ok: true } | { error: string; message: string }> {
+  // #region agent log
+  void debugLog("pre-fix", "H4", "api/index.ts:handleTelegramWebhook", "telegram_webhook_entry", {
+    hasBody: Boolean(body),
+    bodyType: typeof body,
+  });
+  // #endregion
   let tg: TelegramServerless;
   try {
     tg = await loadTelegram();
@@ -502,6 +557,14 @@ async function handleTelegramWebhook(body: unknown): Promise<{ ok: true } | { er
     try {
       if (startPayload.startsWith("ref")) {
         const referralSend = await sendReferralProgramIntro(userId);
+        // #region agent log
+        void debugLog("pre-fix", "H4", "api/index.ts:handleTelegramWebhook:/start", "referral_intro_send_result", {
+          userIdPresent: Boolean(userId),
+          startPayload,
+          ok: referralSend.ok,
+          reason: referralSend.reason || null,
+        });
+        // #endregion
         if (!referralSend.ok) {
           console.error("[telegramWebhook] /start referral intro send failed:", referralSend.reason);
         }
@@ -509,6 +572,13 @@ async function handleTelegramWebhook(body: unknown): Promise<{ ok: true } | { er
       const menuSend = await tg.sendTelegramDirectMessage(userId, "Привет! Выберите действие:", {
         inline_keyboard: buildMainMenu(isAdminEnv),
       });
+      // #region agent log
+      void debugLog("pre-fix", "H4", "api/index.ts:handleTelegramWebhook:/start", "menu_send_result", {
+        userIdPresent: Boolean(userId),
+        ok: menuSend.ok,
+        reason: menuSend.reason || null,
+      });
+      // #endregion
       if (!menuSend.ok) {
         console.error("[telegramWebhook] /start menu send failed:", menuSend.reason);
       }
@@ -981,6 +1051,15 @@ async function handleLogin(
     const password = String(parsedBody.password).trim();
     const envLogin = normalizeEnvSecret(process.env.ADMIN_LOGIN);
     const envPassword = normalizeEnvSecret(process.env.ADMIN_PASSWORD);
+    // #region agent log
+    void debugLog("pre-fix", "H3", "api/index.ts:handleLogin", "login_entry", {
+      hasLogin: Boolean(parsedBody?.login),
+      hasPassword: Boolean(parsedBody?.password),
+      hasAdminLoginEnv: Boolean(envLogin),
+      hasAdminPasswordEnv: Boolean(envPassword),
+      dbConfigured: isDatabaseConfigured(),
+    });
+    // #endregion
 
     const issueEnvToken = () => {
       const tokenData = `env-admin:${Date.now()}`;
@@ -1035,6 +1114,11 @@ async function handleLogin(
         return { success: true, token };
       }
     } catch (error) {
+      // #region agent log
+      void debugLog("pre-fix", "H3", "api/index.ts:handleLogin", "login_db_error", {
+        error: error instanceof Error ? error.message : "unknown_db_error",
+      });
+      // #endregion
       console.error("[api] login_db_error", error);
       return {
         error: "Service error",
@@ -1876,6 +1960,13 @@ async function handleUploadImage(
  * Main handler
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // #region agent log
+  void debugLog("pre-fix", "H1", "api/index.ts:handler", "handler_entry", {
+    method: req.method || null,
+    url: req.url || null,
+    hasQueryAction: Boolean(req.query?.action),
+  });
+  // #endregion
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
     setCorsHeaders(res);
@@ -2185,6 +2276,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return sendJson(res, status, errorResult);
     }
   } catch (error) {
+    // #region agent log
+    void debugLog("pre-fix", "H5", "api/index.ts:handler", "handler_fatal_catch", {
+      action: action || null,
+      method: req.method || null,
+      error: error instanceof Error ? error.message : "unknown_handler_error",
+    });
+    // #endregion
     console.error(`Error handling action '${action}':`, error);
     return sendJson(res, 500, {
       error: "Internal server error",
