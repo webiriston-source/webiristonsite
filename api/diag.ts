@@ -8,28 +8,25 @@ export default async function handler(_req: VercelRequest, res: VercelResponse) 
     hasFetch: typeof fetch === "function",
   };
 
-  try {
-    const mod = await import("./index.ts");
-    report.indexImportOk = Boolean(mod?.default);
-  } catch (error) {
-    report.indexImportOk = false;
-    report.indexImportError = error instanceof Error ? error.message : "unknown_import_error";
-  }
+  const importAttempts: Array<{ key: string; specifier: string }> = [
+    { key: "indexImportTs", specifier: "./index.ts" },
+    { key: "indexImportJs", specifier: "./index.js" },
+    { key: "sharedDbImportNoExt", specifier: "../shared/db" },
+    { key: "sharedDbImportJs", specifier: "../shared/db.js" },
+    { key: "telegramImportTs", specifier: "../serverless/telegram.ts" },
+    { key: "telegramImportJs", specifier: "../serverless/telegram.js" },
+  ];
 
-  try {
-    const db = await import("../shared/db");
-    report.sharedDbImportOk = Boolean(db?.withDb);
-  } catch (error) {
-    report.sharedDbImportOk = false;
-    report.sharedDbImportError = error instanceof Error ? error.message : "unknown_import_error";
-  }
-
-  try {
-    const tg = await import("../serverless/telegram.ts");
-    report.telegramImportOk = Boolean(tg?.sendTelegramDirectMessage);
-  } catch (error) {
-    report.telegramImportOk = false;
-    report.telegramImportError = error instanceof Error ? error.message : "unknown_import_error";
+  for (const attempt of importAttempts) {
+    try {
+      const mod = await import(attempt.specifier);
+      report[attempt.key] = { ok: true, hasExports: Object.keys(mod || {}) };
+    } catch (error) {
+      report[attempt.key] = {
+        ok: false,
+        error: error instanceof Error ? error.message : "unknown_import_error",
+      };
+    }
   }
 
   res.status(200).setHeader("Content-Type", "application/json");
