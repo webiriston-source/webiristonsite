@@ -32,6 +32,7 @@ async function debugLog(
   message: string,
   data: Record<string, unknown>
 ) {
+  if (typeof fetch !== "function") return;
   // #region agent log
   fetch(DEBUG_INGEST_URL, {
     method: "POST",
@@ -48,22 +49,6 @@ async function debugLog(
   }).catch(() => {});
   // #endregion
 }
-
-// #region agent log
-fetch(DEBUG_INGEST_URL, {
-  method: "POST",
-  headers: { "Content-Type": "application/json", "X-Debug-Session-Id": DEBUG_SESSION_ID },
-  body: JSON.stringify({
-    sessionId: DEBUG_SESSION_ID,
-    runId: "pre-fix",
-    hypothesisId: "H1",
-    location: "api/index.ts:module",
-    message: "module_loaded",
-    data: { nodeEnv: process.env.NODE_ENV || null, hasVercel: Boolean(process.env.VERCEL) },
-    timestamp: Date.now(),
-  }),
-}).catch(() => {});
-// #endregion
 
 /** Lazy-load Telegram helpers so a bad import / missing file does not break login and other routes */
 function loadTelegram(): Promise<TelegramServerless> {
