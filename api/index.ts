@@ -20,7 +20,7 @@ import { randomUUID } from "crypto";
 import type { ProjectStatus } from "../shared/schema";
 import { calculateEstimate, type EstimationResult } from "../shared/estimation";
 
-type TelegramServerless = typeof import("../serverless/telegram.js");
+type TelegramServerless = typeof import("./telegram");
 let telegramModulePromise: Promise<TelegramServerless> | null = null;
 const DEBUG_INGEST_URL = "http://127.0.0.1:7345/ingest/2ba65ac8-085c-4d8d-ac0f-441802abfac3";
 const DEBUG_SESSION_ID = "26449a";
@@ -53,7 +53,7 @@ async function debugLog(
 /** Lazy-load Telegram helpers so a bad import / missing file does not break login and other routes */
 function loadTelegram(): Promise<TelegramServerless> {
   if (!telegramModulePromise) {
-    telegramModulePromise = import("../serverless/telegram.js");
+    telegramModulePromise = import("./telegram");
   }
   return telegramModulePromise;
 }

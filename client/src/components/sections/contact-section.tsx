@@ -34,33 +34,11 @@ const TELEGRAM_PROFILE_USERNAME = normalizeTelegramUsername(
   import.meta.env.VITE_TELEGRAM_PROFILE_USERNAME as string | undefined,
   "iristonweb"
 );
-const DEBUG_INGEST_URL = "http://127.0.0.1:7345/ingest/2ba65ac8-085c-4d8d-ac0f-441802abfac3";
-const DEBUG_SESSION_ID = "26449a";
-
-function debugLog(hypothesisId: string, location: string, message: string, data: Record<string, unknown>) {
-  // #region agent log
-  fetch(DEBUG_INGEST_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": DEBUG_SESSION_ID },
-    body: JSON.stringify({
-      sessionId: DEBUG_SESSION_ID,
-      runId: "pre-fix",
-      hypothesisId,
-      location,
-      message,
-      data,
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
-}
 
 const socialLinks = [
   { icon: SiTelegram, href: `https://t.me/${TELEGRAM_PROFILE_USERNAME}`, label: "Telegram" },
-  { icon: SiTelegram, href: `https://t.me/${TELEGRAM_BOT_USERNAME}`, label: "Telegram Bot" },
+  { icon: SiTelegram, href: `https://t.me/${TELEGRAM_BOT_USERNAME}?start=ref_contacts`, label: "Telegram Bot" },
 ];
-
-const referralBotDeepLink = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=ref_contacts`;
 
 function RobotIllustration({ focusedField }: { focusedField: string | null }) {
   const getEyePosition = () => {
@@ -249,18 +227,6 @@ export function ContactSection() {
     }
   }, [isSuccess]);
 
-  useEffect(() => {
-    // #region agent log
-    debugLog("H6", "contact-section.tsx:init", "telegram_urls_resolved", {
-      profileUrl: `https://t.me/${TELEGRAM_PROFILE_USERNAME}`,
-      botUrl: `https://t.me/${TELEGRAM_BOT_USERNAME}`,
-      referralUrl: referralBotDeepLink,
-      profileEnvExists: Boolean(import.meta.env.VITE_TELEGRAM_PROFILE_USERNAME),
-      botEnvExists: Boolean(import.meta.env.VITE_TELEGRAM_BOT_USERNAME),
-    });
-    // #endregion
-  }, []);
-
   const onSubmit = (data: ContactFormData) => {
     mutation.mutate(data);
   };
@@ -419,14 +385,6 @@ export function ContactSection() {
                       href={href}
                       target="_blank"
                       rel="noopener noreferrer"
-                      onClick={() => {
-                        // #region agent log
-                        debugLog("H7", "contact-section.tsx:socialClick", "telegram_social_click", {
-                          label,
-                          href,
-                        });
-                        // #endregion
-                      }}
                     >
                       <Icon className="w-4 h-4 mr-2" />
                       {label}
@@ -434,38 +392,22 @@ export function ContactSection() {
                   </Button>
                 ))}
               </div>
+              <p className="text-xs text-muted-foreground mt-3">
+                Реферальная программа: рекомендуйте мои услуги и получайте бонус до 20% после оплаты проекта.
+                Подробности и приветственное сообщение доступны в Telegram-боте.
+              </p>
             </div>
 
             <div className="bg-card border border-card-border rounded-md p-6 space-y-3">
               <h3 className="font-semibold">Реферальная программа</h3>
               <p className="text-sm text-muted-foreground">
-                Порекомендуйте меня знакомым — это ваше честное посредничество и моя «сарафанная» реклама.
-                За приведённого клиента — приятный бонус до 20% от суммы проекта после оплаты, без лишней возни с вашей стороны.
+                Порекомендуйте мои услуги знакомым и получите бонус до 20% после оплаты проекта.
               </p>
               <ul className="text-sm text-muted-foreground space-y-1">
                 <li>Вы делитесь контактом или ссылкой — клиент оформляет заявку.</li>
                 <li>После оплаты и подтверждения работ начисляется вознаграждение (условия уточняются индивидуально).</li>
-                <li>Подробности пришлю в боте сразу после перехода по кнопке ниже.</li>
+                <li>Подробности и стартовое сообщение отправляет Telegram-бот.</li>
               </ul>
-              <div className="pt-1">
-                <Button asChild variant="default" size="sm" data-testid="link-referral-bot">
-                  <a
-                    href={referralBotDeepLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={() => {
-                      // #region agent log
-                      debugLog("H8", "contact-section.tsx:referralClick", "telegram_referral_click", {
-                        href: referralBotDeepLink,
-                      });
-                      // #endregion
-                    }}
-                  >
-                    <SiTelegram className="w-4 h-4 mr-2" />
-                    Заработать со мной — в боте
-                  </a>
-                </Button>
-              </div>
             </div>
 
             <div className="text-center text-muted-foreground text-sm">

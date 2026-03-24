@@ -8,29 +8,6 @@ const roles = ["Fullstack Разработчик", "Архитектор реш�
 const TELEGRAM_PROFILE_USERNAME = ((import.meta.env.VITE_TELEGRAM_PROFILE_USERNAME as string | undefined) || "iristonweb")
   .trim()
   .replace(/^@+/, "");
-const TELEGRAM_BOT_USERNAME = ((import.meta.env.VITE_TELEGRAM_BOT_USERNAME as string | undefined) || "iristonweb")
-  .trim()
-  .replace(/^@+/, "");
-const DEBUG_INGEST_URL = "http://127.0.0.1:7345/ingest/2ba65ac8-085c-4d8d-ac0f-441802abfac3";
-const DEBUG_SESSION_ID = "26449a";
-
-function debugLog(hypothesisId: string, location: string, message: string, data: Record<string, unknown>) {
-  // #region agent log
-  fetch(DEBUG_INGEST_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": DEBUG_SESSION_ID },
-    body: JSON.stringify({
-      sessionId: DEBUG_SESSION_ID,
-      runId: "pre-fix",
-      hypothesisId,
-      location,
-      message,
-      data,
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
-}
 
 export function HeroSection() {
   const [currentRoleIndex, setCurrentRoleIndex] = useState(0);
@@ -162,14 +139,6 @@ export function HeroSection() {
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="Telegram"
-                onClick={() => {
-                  // #region agent log
-                  debugLog("H9", "hero-section.tsx:telegramClick", "hero_telegram_click", {
-                    href: `https://t.me/${TELEGRAM_PROFILE_USERNAME || "iristonweb"}`,
-                    botUsernameAlsoSet: TELEGRAM_BOT_USERNAME || "iristonwebbot",
-                  });
-                  // #endregion
-                }}
               >
                 <SiTelegram className="w-5 h-5" />
               </a>
