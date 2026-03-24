@@ -1,5 +1,5 @@
-import type { VercelRequest, VercelResponse } from "../shared/vercel-types";
-import { withDb, isDatabaseConfigured } from "../shared/db";
+import type { VercelRequest, VercelResponse } from "../shared/vercel-types.js";
+import { withDb, isDatabaseConfigured } from "../shared/db.js";
 import {
   users,
   leads,
@@ -13,13 +13,13 @@ import {
   type InsertLead,
   type InsertProject,
   type TelegramFlowState,
-} from "../shared/schema";
+} from "../shared/schema.js";
 import { eq, desc } from "drizzle-orm";
 import bcryptjs from "bcryptjs";
 import { randomUUID } from "crypto";
-import type { ProjectStatus } from "../shared/schema";
-import { calculateEstimate, type EstimationResult } from "../shared/estimation";
-import * as telegram from "./telegram";
+import type { ProjectStatus } from "../shared/schema.js";
+import { calculateEstimate, type EstimationResult } from "../shared/estimation.js";
+import * as telegram from "./telegram.js";
 
 /**
  * Parse JSON body from request
@@ -1253,7 +1253,7 @@ async function handleGetProjects(
 /**
  * Handle get analytics (GET request)
  */
-import type { Lead } from "../shared/schema";
+import type { Lead } from "../shared/schema.js";
 
 async function handleGetAnalytics(
   db: any
