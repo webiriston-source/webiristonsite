@@ -394,20 +394,8 @@ export function ContactSection() {
               </div>
               <p className="text-xs text-muted-foreground mt-3">
                 Реферальная программа: рекомендуйте мои услуги и получайте бонус до 20% после оплаты проекта.
-                Подробности и приветственное сообщение доступны в Telegram-боте.
+                Подробности доступны в Telegram-боте.
               </p>
-            </div>
-
-            <div className="bg-card border border-card-border rounded-md p-6 space-y-3">
-              <h3 className="font-semibold">Реферальная программа</h3>
-              <p className="text-sm text-muted-foreground">
-                Порекомендуйте мои услуги знакомым и получите бонус до 20% после оплаты проекта.
-              </p>
-              <ul className="text-sm text-muted-foreground space-y-1">
-                <li>Вы делитесь контактом или ссылкой — клиент оформляет заявку.</li>
-                <li>После оплаты и подтверждения работ начисляется вознаграждение (условия уточняются индивидуально).</li>
-                <li>Подробности и стартовое сообщение отправляет Telegram-бот.</li>
-              </ul>
             </div>
 
             <div className="text-center text-muted-foreground text-sm">

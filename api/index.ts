@@ -19,44 +19,7 @@ import bcryptjs from "bcryptjs";
 import { randomUUID } from "crypto";
 import type { ProjectStatus } from "../shared/schema";
 import { calculateEstimate, type EstimationResult } from "../shared/estimation";
-
-type TelegramServerless = typeof import("./telegram");
-let telegramModulePromise: Promise<TelegramServerless> | null = null;
-const DEBUG_INGEST_URL = "http://127.0.0.1:7345/ingest/2ba65ac8-085c-4d8d-ac0f-441802abfac3";
-const DEBUG_SESSION_ID = "26449a";
-
-async function debugLog(
-  runId: string,
-  hypothesisId: string,
-  location: string,
-  message: string,
-  data: Record<string, unknown>
-) {
-  if (typeof fetch !== "function") return;
-  // #region agent log
-  fetch(DEBUG_INGEST_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": DEBUG_SESSION_ID },
-    body: JSON.stringify({
-      sessionId: DEBUG_SESSION_ID,
-      runId,
-      hypothesisId,
-      location,
-      message,
-      data,
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
-}
-
-/** Lazy-load Telegram helpers so a bad import / missing file does not break login and other routes */
-function loadTelegram(): Promise<TelegramServerless> {
-  if (!telegramModulePromise) {
-    telegramModulePromise = import("./telegram");
-  }
-  return telegramModulePromise;
-}
+import * as telegram from "./telegram";
 
 /**
  * Parse JSON body from request
@@ -72,14 +35,7 @@ async function parseJsonBody<T>(req: VercelRequest): Promise<T | null> {
       raw += typeof chunk === "string" ? chunk : chunk.toString("utf8");
     }
     return raw ? JSON.parse(raw) : null;
-  } catch (error) {
-    // #region agent log
-    void debugLog("pre-fix", "H2", "api/index.ts:parseJsonBody", "parse_json_failed", {
-      url: req.url || null,
-      method: req.method || null,
-      error: error instanceof Error ? error.message : "unknown_parse_error",
-    });
-    // #endregion
+  } catch {
     return null;
   }
 }
@@ -325,7 +281,7 @@ const REFERRAL_PROGRAM_INTRO = `Реферальная программа
 const REFERRAL_CAPTION_MAX = 1000;
 
 async function sendReferralProgramIntro(telegramUserId: string): Promise<{ ok: boolean; reason?: string }> {
-  const tg = await loadTelegram();
+  const tg = telegram;
   const keyboard = [...buildReferralInlineKeyboard()];
   const imageUrl = process.env.TELEGRAM_REFERRAL_IMAGE_URL?.trim();
   if (imageUrl) {
@@ -501,7 +457,7 @@ function telegramUserIsAdminEnv(user: TelegramUserInfo): boolean {
 
 async function notifyTelegramDbLimited(userId: string) {
   try {
-    const tg = await loadTelegram();
+    const tg = telegram;
     await tg.sendTelegramDirectMessage(
       userId,
       "Сервис временно ограничен. Попробуйте позже или нажмите /start.",
@@ -513,19 +469,7 @@ async function notifyTelegramDbLimited(userId: string) {
 }
 
 async function handleTelegramWebhook(body: unknown): Promise<{ ok: true } | { error: string; message: string }> {
-  // #region agent log
-  void debugLog("pre-fix", "H4", "api/index.ts:handleTelegramWebhook", "telegram_webhook_entry", {
-    hasBody: Boolean(body),
-    bodyType: typeof body,
-  });
-  // #endregion
-  let tg: TelegramServerless;
-  try {
-    tg = await loadTelegram();
-  } catch (e) {
-    console.error("[telegramWebhook] failed to load telegram module:", e);
-    return { ok: true };
-  }
+  const tg = telegram;
   const update = body as any;
   const callback = update?.callback_query;
   const message = update?.message;
@@ -542,14 +486,6 @@ async function handleTelegramWebhook(body: unknown): Promise<{ ok: true } | { er
     try {
       if (startPayload.startsWith("ref")) {
         const referralSend = await sendReferralProgramIntro(userId);
-        // #region agent log
-        void debugLog("pre-fix", "H4", "api/index.ts:handleTelegramWebhook:/start", "referral_intro_send_result", {
-          userIdPresent: Boolean(userId),
-          startPayload,
-          ok: referralSend.ok,
-          reason: referralSend.reason || null,
-        });
-        // #endregion
         if (!referralSend.ok) {
           console.error("[telegramWebhook] /start referral intro send failed:", referralSend.reason);
         }
@@ -557,13 +493,6 @@ async function handleTelegramWebhook(body: unknown): Promise<{ ok: true } | { er
       const menuSend = await tg.sendTelegramDirectMessage(userId, "Привет! Выберите действие:", {
         inline_keyboard: buildMainMenu(isAdminEnv),
       });
-      // #region agent log
-      void debugLog("pre-fix", "H4", "api/index.ts:handleTelegramWebhook:/start", "menu_send_result", {
-        userIdPresent: Boolean(userId),
-        ok: menuSend.ok,
-        reason: menuSend.reason || null,
-      });
-      // #endregion
       if (!menuSend.ok) {
         console.error("[telegramWebhook] /start menu send failed:", menuSend.reason);
       }
@@ -851,18 +780,17 @@ async function handleContact(
       .returning();
 
     // Send Telegram notification (non-blocking)
-    loadTelegram()
-      .then((t) =>
-        t.sendContactToTelegram({
-          name,
-          email,
-          message,
-          scoring,
-          referralCode: referralCode || undefined,
-          referrerTelegramId: referrerTelegramId || undefined,
-          referrerUsername: normalizeReferralUsername(referrerUsername) || undefined,
-        })
-      )
+    Promise.resolve(
+      telegram.sendContactToTelegram({
+        name,
+        email,
+        message,
+        scoring,
+        referralCode: referralCode || undefined,
+        referrerTelegramId: referrerTelegramId || undefined,
+        referrerUsername: normalizeReferralUsername(referrerUsername) || undefined,
+      })
+    )
       .catch((error) => {
         console.error("Failed to send Telegram notification:", error);
       });
@@ -969,30 +897,29 @@ async function handleEstimate(
       .returning();
 
     // Send Telegram notification (non-blocking)
-    loadTelegram()
-      .then((t) =>
-        t.sendEstimateToTelegram({
-          name: data.contactName,
-          email: data.contactEmail,
-          telegram: data.contactTelegram || undefined,
-          projectType: data.projectType,
-          features: data.features,
-          designComplexity: data.designComplexity,
-          urgency: data.urgency,
-          budget: data.budget || undefined,
-          description: data.description || undefined,
-          scoring,
-          estimation: {
-            minPrice: estimation.minPrice,
-            maxPrice: estimation.maxPrice,
-            minDays: estimation.minDays,
-            maxDays: estimation.maxDays,
-          },
-          referralCode: data.referralCode || undefined,
-          referrerTelegramId: data.referrerTelegramId || undefined,
-          referrerUsername: normalizeReferralUsername(data.referrerUsername) || undefined,
-        })
-      )
+    Promise.resolve(
+      telegram.sendEstimateToTelegram({
+        name: data.contactName,
+        email: data.contactEmail,
+        telegram: data.contactTelegram || undefined,
+        projectType: data.projectType,
+        features: data.features,
+        designComplexity: data.designComplexity,
+        urgency: data.urgency,
+        budget: data.budget || undefined,
+        description: data.description || undefined,
+        scoring,
+        estimation: {
+          minPrice: estimation.minPrice,
+          maxPrice: estimation.maxPrice,
+          minDays: estimation.minDays,
+          maxDays: estimation.maxDays,
+        },
+        referralCode: data.referralCode || undefined,
+        referrerTelegramId: data.referrerTelegramId || undefined,
+        referrerUsername: normalizeReferralUsername(data.referrerUsername) || undefined,
+      })
+    )
       .catch((error) => {
         console.error("Failed to send Telegram notification:", error);
       });
@@ -1036,15 +963,6 @@ async function handleLogin(
     const password = String(parsedBody.password).trim();
     const envLogin = normalizeEnvSecret(process.env.ADMIN_LOGIN);
     const envPassword = normalizeEnvSecret(process.env.ADMIN_PASSWORD);
-    // #region agent log
-    void debugLog("pre-fix", "H3", "api/index.ts:handleLogin", "login_entry", {
-      hasLogin: Boolean(parsedBody?.login),
-      hasPassword: Boolean(parsedBody?.password),
-      hasAdminLoginEnv: Boolean(envLogin),
-      hasAdminPasswordEnv: Boolean(envPassword),
-      dbConfigured: isDatabaseConfigured(),
-    });
-    // #endregion
 
     const issueEnvToken = () => {
       const tokenData = `env-admin:${Date.now()}`;
@@ -1099,11 +1017,6 @@ async function handleLogin(
         return { success: true, token };
       }
     } catch (error) {
-      // #region agent log
-      void debugLog("pre-fix", "H3", "api/index.ts:handleLogin", "login_db_error", {
-        error: error instanceof Error ? error.message : "unknown_db_error",
-      });
-      // #endregion
       console.error("[api] login_db_error", error);
       return {
         error: "Service error",
@@ -1164,7 +1077,7 @@ async function handleHealthCheck(host: string | undefined) {
   }
 
   try {
-    const tg = await loadTelegram();
+    const tg = telegram;
     const [profile, webhookInfo] = await Promise.all([tg.getTelegramBotProfile(), tg.getTelegramWebhookInfo()]);
     payload.telegram = {
       ...(payload.telegram as Record<string, unknown>),
@@ -1210,7 +1123,7 @@ async function handleTelegramWebhookSync(
   }
 
   try {
-    const tg = await loadTelegram();
+    const tg = telegram;
     const before = await tg.getTelegramWebhookInfo();
     if (!before.ok) {
       return {
@@ -1526,7 +1439,6 @@ async function handleUpdateProjectLifecycle(
         "Статус: approved (готово к выплате)",
         `Реферер: ${rewardResult.referrerTelegramId}${usernamePart}`,
       ].join("\n");
-      const telegram = await loadTelegram();
       await telegram.sendTelegramDirectMessage(rewardResult.referrerTelegramId, text);
     }
 
@@ -1945,13 +1857,6 @@ async function handleUploadImage(
  * Main handler
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // #region agent log
-  void debugLog("pre-fix", "H1", "api/index.ts:handler", "handler_entry", {
-    method: req.method || null,
-    url: req.url || null,
-    hasQueryAction: Boolean(req.query?.action),
-  });
-  // #endregion
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
     setCorsHeaders(res);
@@ -2261,13 +2166,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return sendJson(res, status, errorResult);
     }
   } catch (error) {
-    // #region agent log
-    void debugLog("pre-fix", "H5", "api/index.ts:handler", "handler_fatal_catch", {
-      action: action || null,
-      method: req.method || null,
-      error: error instanceof Error ? error.message : "unknown_handler_error",
-    });
-    // #endregion
     console.error(`Error handling action '${action}':`, error);
     return sendJson(res, 500, {
       error: "Internal server error",
