@@ -4,7 +4,7 @@
   "outputDirectory": "dist/public",
   "functions": {
     "api/index.ts": {
-      "includeFiles": "{shared,serverless,server}/**/*"
+      "includeFiles": "shared/**/*"
     }
   },
   "rewrites": [
