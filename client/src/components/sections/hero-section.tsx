@@ -166,7 +166,7 @@ export function HeroSection() {
                   // #region agent log
                   debugLog("H9", "hero-section.tsx:telegramClick", "hero_telegram_click", {
                     href: `https://t.me/${TELEGRAM_PROFILE_USERNAME || "iristonweb"}`,
-                    botUsernameAlsoSet: TELEGRAM_BOT_USERNAME || null,
+                    botUsernameAlsoSet: TELEGRAM_BOT_USERNAME || "iristonwebbot",
                   });
                   // #endregion
                 }}

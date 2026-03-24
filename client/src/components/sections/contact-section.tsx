@@ -28,7 +28,7 @@ function normalizeTelegramUsername(value: string | undefined, fallback: string):
 
 const TELEGRAM_BOT_USERNAME = normalizeTelegramUsername(
   import.meta.env.VITE_TELEGRAM_BOT_USERNAME as string | undefined,
-  "iristonweb"
+  "iristonwebbot"
 );
 const TELEGRAM_PROFILE_USERNAME = normalizeTelegramUsername(
   import.meta.env.VITE_TELEGRAM_PROFILE_USERNAME as string | undefined,
